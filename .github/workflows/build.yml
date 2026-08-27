@@ -1,4 +1,4 @@
-name: Build APK
+name: Build Bypass
 
 on:
   push:
@@ -6,7 +6,7 @@ on:
   workflow_dispatch:
 
 jobs:
-  build:
+  build-android:
     name: Build Android APK
     runs-on: ubuntu-latest
     steps:
@@ -20,12 +20,12 @@ jobs:
       - name: Setup Flutter
         uses: subosito/flutter-action@v2
       - name: Create Android project files
-        run: flutter create . --project-name bypass_app --org com.eri
+        run: flutter create . --project-name bypass_app --org com.eri --platforms android
       - name: Add INTERNET permission to manifest
         run: |
-          sed -i 's|<application|<uses-permission android:name="android.permission.INTERNET"/><application|' android/app/src/main/AndroidManifest.xml
+          sed -i 's|<application|<uses-permission android:name="android.permission.INTERNET"/><uses-permission android:name="android.permission.ACCESS_NETWORK_STATE"/><application|' android/app/src/main/AndroidManifest.xml
           sed -i 's|android:label="bypass_app"|android:label="Bypass"|' android/app/src/main/AndroidManifest.xml
-          grep -n 'INTERNET\|usesCleartextTraffic' android/app/src/main/AndroidManifest.xml || true
+          grep -n 'INTERNET\|ACCESS_NETWORK_STATE' android/app/src/main/AndroidManifest.xml || true
       - name: Build APK
         run: flutter pub get && flutter build apk --release
       - name: Upload APK
@@ -33,4 +33,23 @@ jobs:
         with:
           name: bypass-apk
           path: build/app/outputs/flutter-apk/app-release.apk
+          if-no-files-found: warn
+
+  build-windows:
+    name: Build Windows EXE
+    runs-on: windows-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+      - name: Setup Flutter
+        uses: subosito/flutter-action@v2
+      - name: Create Windows project files
+        run: flutter create . --project-name bypass_app --org com.eri --platforms windows
+      - name: Build Windows
+        run: flutter pub get && flutter build windows --release
+      - name: Upload Windows build
+        uses: actions/upload-artifact@v4
+        with:
+          name: bypass-windows
+          path: build/windows/x64/runner/Release/
           if-no-files-found: warn

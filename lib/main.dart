@@ -1,15 +1,213 @@
 import 'dart:async';
 import 'dart:convert';
+import 'dart:io';
 
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:http/http.dart' as http;
+import 'package:connectivity_plus/connectivity_plus.dart';
 
 void main() {
+  WidgetsFlutterBinding.ensureInitialized();
   runApp(const BypassApp());
 }
 
-class BypassApp extends StatelessWidget {
+/// 强安全检测：VPN / 代理 / Frida / Xposed / 注入 / 调试特征
+class SecurityChecker {
+  SecurityChecker._();
+
+  // Frida 默认端口 + 常见调试端口
+  static const List<int> _fridaPorts = [27042, 27043, 27044, 27045];
+  // 常见注入/框架特征字符串
+  static const List<String> _mapsSignatures = [
+    'frida',
+    'gum-js-loop',
+    'gmain',
+    'linjector',
+    'xposed',
+    'XposedBridge',
+    'substrate',
+    'Substrate',
+    'riru',
+    'zygisk',
+    'lsposed',
+    'edxposed',
+    'whale',
+    'dex2jar',
+    'jdwp',
+    'android_server',
+    'frida-server',
+    'magisk',
+  ];
+  // 常见 hook/注入框架包名与文件
+  static const List<String> _xposedPaths = [
+    '/data/local/tmp/frida-server',
+    '/data/local/tmp/frida-server64',
+    '/data/local/tmp/re.frida.server',
+    '/data/local/tmp/linjector',
+    '/system/lib/libsubstrate.so',
+    '/system/lib/libxposed_art.so',
+    '/system/framework/XposedBridge.jar',
+    '/sdcard/frida-server',
+    '/data/data/de.robv.android.xposed.installer',
+    '/data/data/com.saurik.substrate',
+    '/data/data/io.github.lsposed.lsposed',
+  ];
+
+  /// 综合检测，任一命中返回 true（存在威胁）
+  static Future<bool> checkAll() async {
+    if (await _checkVpn()) return true;
+    if (await _checkFridaPort()) return true;
+    if (await _checkMapsFile()) return true;
+    if (await _checkInjectionFiles()) return true;
+    if (await _checkSystemProxy()) return true;
+    return false;
+  }
+
+  /// 1. VPN 连接检测（三端支持）
+  static Future<bool> _checkVpn() async {
+    try {
+      final results = await Connectivity().checkConnectivity();
+      for (final r in results) {
+        if (r == ConnectivityResult.vpn) return true;
+      }
+    } catch (_) {}
+    return false;
+  }
+
+  /// 2. Frida 默认端口扫描（仅 Android）
+  static Future<bool> _checkFridaPort() async {
+    if (!Platform.isAndroid) return false;
+    for (final port in _fridaPorts) {
+      try {
+        final socket = await Socket.connect('127.0.0.1', port,
+            timeout: const Duration(milliseconds: 300));
+        socket.destroy();
+        return true; // 端口被占用 = Frida server 在跑
+      } catch (_) {}
+    }
+    return false;
+  }
+
+  /// 3. 扫描 /proc/self/maps 找注入特征（Android）
+  static Future<bool> _checkMapsFile() async {
+    if (!Platform.isAndroid) return false;
+    try {
+      final maps = await File('/proc/self/maps').readAsString();
+      final lower = maps.toLowerCase();
+      for (final sig in _mapsSignatures) {
+        if (lower.contains(sig)) return true;
+      }
+    } catch (_) {}
+    return false;
+  }
+
+  /// 4. 常见注入文件 / Xposed 数据目录检测
+  static Future<bool> _checkInjectionFiles() async {
+    if (!Platform.isAndroid) return false;
+    for (final path in _xposedPaths) {
+      try {
+        if (await File(path).exists()) return true;
+      } catch (_) {}
+    }
+    return false;
+  }
+
+  /// 5. 系统代理检测（Android 环境变量 / Windows 环境变量）
+  static Future<bool> _checkSystemProxy() async {
+    try {
+      if (Platform.isAndroid) {
+        final host = Platform.environment['http_proxy'];
+        if (host != null && host.isNotEmpty) return true;
+      }
+      if (Platform.isWindows) {
+        for (final key in const [
+          'HTTP_PROXY', 'HTTPS_PROXY', 'ALL_PROXY', 'http_proxy', 'https_proxy'
+        ]) {
+          final v = Platform.environment[key];
+          if (v != null && v.isNotEmpty) return true;
+        }
+      }
+    } catch (_) {}
+    return false;
+  }
+}
+
+class BypassApp extends StatefulWidget {
   const BypassApp({super.key});
+
+  @override
+  State<BypassApp> createState() => _BypassAppState();
+}
+
+class _BypassAppState extends State<BypassApp> with WidgetsBindingObserver {
+  bool _checking = false;
+
+  @override
+  void initState() {
+    super.initState();
+    WidgetsBinding.instance.addObserver(this);
+    WidgetsBinding.instance.addPostFrameCallback((_) => _runSecurityCheck());
+  }
+
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    // 每次恢复前台重新检测，防止中途开 VPN/hook
+    if (state == AppLifecycleState.resumed) {
+      _runSecurityCheck();
+    }
+  }
+
+  Future<void> _runSecurityCheck() async {
+    if (_checking) return;
+    _checking = true;
+    try {
+      final attacked = await SecurityChecker.checkAll();
+      if (attacked && mounted) {
+        _exitDueToAttack();
+      }
+    } finally {
+      _checking = false;
+    }
+  }
+
+  /// 检测到威胁：弹不可关闭对话框强制退出
+  Future<void> _exitDueToAttack() async {
+    if (!mounted) return;
+    // 二次确认，防误报
+    final again = await SecurityChecker.checkAll();
+    if (!again) return;
+
+    await showDialog<void>(
+      context: context,
+      barrierDismissible: false,
+      barrierColor: Colors.black87,
+      builder: (context) => PopScope(
+        canPop: false,
+        child: AlertDialog(
+          icon: const Icon(Icons.gpp_bad, color: Colors.red, size: 48),
+          title: const Text('安全警告'),
+          content: const Text(
+            '检测到异常环境（VPN / 代理 / Hook / 调试框架）。\n为保护数据安全，应用将被强制退出。',
+            textAlign: TextAlign.center,
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => exit(0),
+              child: const Text('退出', style: TextStyle(color: Colors.red)),
+            ),
+          ],
+        ),
+      ),
+    );
+    exit(0);
+  }
+
+  @override
+  void dispose() {
+    WidgetsBinding.instance.removeObserver(this);
+    super.dispose();
+  }
 
   @override
   Widget build(BuildContext context) {
