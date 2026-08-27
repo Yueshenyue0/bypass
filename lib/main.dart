@@ -70,7 +70,7 @@ class BypassPage extends StatefulWidget {
 }
 
 class _BypassPageState extends State<BypassPage> {
-  static const String _baseUrl = 'https://春秋.top/bypass?url=';
+  static const String _baseUrl = 'https://xn--vzr82a.top/bypass?url=';
   static const Duration _cooldown = Duration(minutes: 1);
 
   final TextEditingController _controller = TextEditingController();
@@ -184,21 +184,14 @@ class _BypassPageState extends State<BypassPage> {
       padding: const EdgeInsets.all(16),
       child: Column(
         children: [
+          const SizedBox(height: 30),
           TextField(
             controller: _controller,
             decoration: const InputDecoration(
               labelText: '输入链接',
-              hintText: '例如 https://example.com/video',
+              hintText: '例如 https://auth.platorelay.com',
               border: OutlineInputBorder(),
               prefixIcon: Icon(Icons.link),
-            ),
-          ),
-          const SizedBox(height: 12),
-          Align(
-            alignment: Alignment.centerLeft,
-            child: Text(
-              '请求地址: $_baseUrl${_controller.text.isEmpty ? '...' : Uri.encodeComponent(_controller.text.trim())}',
-              style: const TextStyle(fontSize: 12, color: Colors.grey),
             ),
           ),
           const SizedBox(height: 12),
