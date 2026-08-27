@@ -21,6 +21,11 @@ jobs:
         uses: subosito/flutter-action@v2
       - name: Create Android project files
         run: flutter create . --project-name bypass_app --org com.eri
+      - name: Add INTERNET permission to manifest
+        run: |
+          sed -i 's|<application|<uses-permission android:name="android.permission.INTERNET"/><application|' android/app/src/main/AndroidManifest.xml
+          sed -i 's|android:label="bypass_app"|android:label="Bypass"|' android/app/src/main/AndroidManifest.xml
+          grep -n 'INTERNET\|usesCleartextTraffic' android/app/src/main/AndroidManifest.xml || true
       - name: Build APK
         run: flutter pub get && flutter build apk --release
       - name: Upload APK
