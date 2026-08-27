@@ -1,0 +1,111 @@
+import 'dart:io';
+import 'package:flutter/foundation.dart';
+import 'package:vpn_connection_detector/vpn_connection_detector.dart';
+import 'package:connectivity_plus/connectivity_plus.dart' as cc;
+
+/// 强安全检测：VPN / 代理 / Frida / Xposed / Root
+class SecurityChecker {
+  SecurityChecker._();
+
+  static const List<int> _fridaPorts = [27042, 27043, 27044, 27045];
+  static const List<String> _mapsSignatures = [
+    'frida', 'gum-js-loop', 'gmain', 'linjector', 'xposed',
+    'XposedBridge', 'substrate', 'Substrate', 'riru', 'zygisk',
+    'lsposed', 'edxposed', 'whale', 'dex2jar', 'jdwp',
+    'android_server', 'frida-server', 'magisk',
+  ];
+  static const List<String> _xposedPaths = [
+    '/data/local/tmp/frida-server', '/data/local/tmp/frida-server64',
+    '/data/local/tmp/re.frida.server', '/data/local/tmp/linjector',
+    '/system/lib/libsubstrate.so', '/system/lib/libxposed_art.so',
+    '/system/framework/XposedBridge.jar', '/sdcard/frida-server',
+    '/data/data/de.robv.android.xposed.installer',
+    '/data/data/com.saurik.substrate', '/data/data/io.github.lsposed.lsposed',
+  ];
+  static const List<String> _rootPaths = [
+    '/system/xbin/su', '/system/bin/su', '/sbin/su',
+    '/system/sd/xbin/su', '/data/local/xbin/su', '/data/local/bin/su',
+    '/system/app/Superuser.apk', '/system/app/SuperSU',
+  ];
+  static const List<String> _rootCmds = ['su', 'busybox'];
+
+  static Future<bool> checkAll() async {
+    if (await _checkVpn()) return true;
+    if (await _checkFridaPort()) return true;
+    if (await _checkMapsFile()) return true;
+    if (await _checkInjectionFiles()) return true;
+    if (await _checkSystemProxy()) return true;
+    if (await _checkRoot()) return true;
+    return false;
+  }
+
+  static Future<bool> _checkVpn() async {
+    try {
+      if (await VpnConnectionDetector.isVpnActive()) return true;
+    } catch (_) {}
+    try {
+      final results = await cc.Connectivity().checkConnectivity();
+      for (final r in results) {
+        if (r == cc.ConnectivityResult.vpn) return true;
+      }
+    } catch (_) {}
+    return false;
+  }
+
+  static Future<bool> _checkFridaPort() async {
+    if (!Platform.isAndroid) return false;
+    for (final port in _fridaPorts) {
+      try {
+        final socket = await Socket.connect('127.0.0.1', port,
+            timeout: const Duration(milliseconds: 300));
+        socket.destroy();
+        return true;
+      } catch (_) {}
+    }
+    return false;
+  }
+
+  static Future<bool> _checkMapsFile() async {
+    if (!Platform.isAndroid) return false;
+    try {
+      final maps = await File('/proc/self/maps').readAsString();
+      final lower = maps.toLowerCase();
+      for (final sig in _mapsSignatures) {
+        if (lower.contains(sig)) return true;
+      }
+    } catch (_) {}
+    return false;
+  }
+
+  static Future<bool> _checkInjectionFiles() async {
+    if (!Platform.isAndroid) return false;
+    for (final path in _xposedPaths) {
+      try { if (await File(path).exists()) return true; } catch (_) {}
+    }
+    return false;
+  }
+
+  static Future<bool> _checkSystemProxy() async {
+    try {
+      if (Platform.isAndroid) {
+        final host = Platform.environment['http_proxy'];
+        if (host != null && host.isNotEmpty) return true;
+      }
+    } catch (_) {}
+    return false;
+  }
+
+  static Future<bool> _checkRoot() async {
+    if (!Platform.isAndroid) return false;
+    for (final p in _rootPaths) {
+      try { if (await File(p).exists()) return true; } catch (_) {}
+    }
+    for (final cmd in _rootCmds) {
+      try {
+        final r = await Process.run('which', [cmd]);
+        if ((r.stdout as String).trim().isNotEmpty) return true;
+      } catch (_) {}
+    }
+    return false;
+  }
+}
