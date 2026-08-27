@@ -1,5 +1,6 @@
 import 'dart:async';
 import 'dart:convert';
+import 'dart:developer' as developer;
 import 'dart:io';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
@@ -280,11 +281,18 @@ class _BypassPageState extends State<BypassPage> {
           _error = '返回格式异常';
         }
       });
-    } catch (e) {
+    } on TimeoutException {
       _requestTimer?.stop();
       setState(() {
         _loading = false;
-        _error = '请求失败: $e';
+        _error = '请求超时（队列过长），请稍后重试';
+      });
+    } catch (e, st) {
+      _requestTimer?.stop();
+      developer.log('请求异常', error: e, stackTrace: st);
+      setState(() {
+        _loading = false;
+        _error = '网络异常，请检查连接后重试';
       });
     }
   }
