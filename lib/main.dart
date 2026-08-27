@@ -70,7 +70,7 @@ class BypassPage extends StatefulWidget {
 }
 
 class _BypassPageState extends State<BypassPage> {
-  static const String _baseUrl = 'https://xn--vzr82a.top/bypass?url=';
+  static const String _baseUrl = 'https://xn--qiv605b.top/bypass?url=';
   static const Duration _cooldown = Duration(minutes: 1);
 
   final TextEditingController _controller = TextEditingController();
