@@ -6,6 +6,7 @@ import 'package:flutter/services.dart';
 import 'package:http/http.dart' as http;
 import 'package:share_plus/share_plus.dart';
 import '../history_store.dart';
+import '../notify_service.dart';
 
 /// bypass 主功能页
 class BypassPage extends StatefulWidget {
@@ -107,6 +108,11 @@ class BypassPageState extends State<BypassPage> {
               time: DateTime.now(),
             ));
             _historyVersion++;
+            // 绕过成功弹通知
+            final nKey = decoded['key'] as String?;
+            if (nKey != null && nKey.isNotEmpty) {
+              NotifyService.showSuccess(nKey);
+            }
           }
         } else {
           _error = '返回格式异常';

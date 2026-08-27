@@ -2,6 +2,7 @@ import 'dart:io';
 import 'package:flutter/material.dart';
 import 'security_checker.dart';
 import 'theme_store.dart';
+import 'notify_service.dart';
 import 'pages/home_page.dart';
 
 void main() {
@@ -9,7 +10,7 @@ void main() {
   runApp(const BypassApp());
 }
 
-/// App 根：主题调度 + 安全检测生命周期
+/// App 根：主题调度 + 安全检测 + 通知 + 保活
 class BypassApp extends StatefulWidget {
   const BypassApp({super.key});
   @override
@@ -24,10 +25,19 @@ class _BypassAppState extends State<BypassApp> with WidgetsBindingObserver {
   void initState() {
     super.initState();
     WidgetsBinding.instance.addObserver(this);
+    _initServices();
+    WidgetsBinding.instance.addPostFrameCallback((_) => _runSecurityCheck());
+  }
+
+  Future<void> _initServices() async {
+    // 初始化通知
+    await NotifyService.init();
+    // 启动前台保活服务（常驻通知）
+    if (mounted) await NotifyService.startForegroundTask();
+    // 加载主题
     ThemeStore.load().then((m) {
       if (mounted) setState(() => _themeMode = m);
     });
-    WidgetsBinding.instance.addPostFrameCallback((_) => _runSecurityCheck());
   }
 
   @override
