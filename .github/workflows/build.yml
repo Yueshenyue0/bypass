@@ -3,34 +3,72 @@ name: Build Bypass
 on:
   push:
     branches: [ main ]
+    paths:
+      - 'lib/**'
+      - 'pubspec.yaml'
+      - 'pubspec.lock'
+      - '.github/workflows/**'
   workflow_dispatch:
 
 jobs:
   build-android:
     name: Build Android APK
     runs-on: ubuntu-latest
+    timeout-minutes: 30
     steps:
       - name: Checkout
         uses: actions/checkout@v4
+
       - name: Setup Java
         uses: actions/setup-java@v4
         with:
           distribution: temurin
           java-version: '17'
+
       - name: Setup Flutter
         uses: subosito/flutter-action@v2
+        with:
+          channel: stable
+
+      # ====== 缓存：pub 包 ======
+      - name: Cache pub dependencies
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.pub-cache
+            .dart_tool/package_config.json
+          key: ${{ runner.os }}-pub-${{ hashFiles('pubspec.lock') }}
+          restore-keys: |
+            ${{ runner.os }}-pub-
+
       - name: Create Android project files
         run: flutter create . --project-name bypass_app --org com.eri --platforms android
+
+      # ====== 缓存：Gradle ======
+      - name: Setup Gradle
+        uses: gradle/actions/setup-gradle@v4
+        with:
+          cache-read-only: ${{ github.ref != 'refs/heads/main' }}
+
       - name: Add INTERNET permission to manifest
         run: |
           sed -i 's|<application|<uses-permission android:name="android.permission.INTERNET"/><uses-permission android:name="android.permission.ACCESS_NETWORK_STATE"/><application|' android/app/src/main/AndroidManifest.xml
           sed -i 's|android:label="bypass_app"|android:label="Bypass"|' android/app/src/main/AndroidManifest.xml
           grep -n 'INTERNET\|ACCESS_NETWORK_STATE' android/app/src/main/AndroidManifest.xml || true
-      - name: Build APK
-        run: flutter pub get && flutter build apk --release
-      - name: Upload APK
+
+      - name: Get dependencies
+        run: flutter pub get
+
+      - name: Build APK (split per ABI)
+        run: flutter build apk --release --split-per-abi
+
+      - name: Upload APKs
         uses: actions/upload-artifact@v4
         with:
           name: bypass-apk
-          path: build/app/outputs/flutter-apk/app-release.apk
+          path: |
+            build/app/outputs/flutter-apk/app-arm64-v8a-release.apk
+            build/app/outputs/flutter-apk/app-armeabi-v7a-release.apk
+            build/app/outputs/flutter-apk/app-x86_64-release.apk
           if-no-files-found: warn
+          retention-days: 14
