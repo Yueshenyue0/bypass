@@ -12,7 +12,7 @@ dependencies:
     sdk: flutter
   http: ^1.2.0
   vpn_connection_detector: ^2.1.0
-  connectivity_plus: ^6.1.2
+  connectivity_plus: ^7.2.0
   shared_preferences: ^2.3.0
   share_plus: ^10.0.0
 
