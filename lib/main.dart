@@ -1,7 +1,6 @@
 import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
-
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:http/http.dart' as http;
@@ -17,45 +16,22 @@ void main() {
 class SecurityChecker {
   SecurityChecker._();
 
-  // Frida 默认端口 + 常见调试端口
   static const List<int> _fridaPorts = [27042, 27043, 27044, 27045];
-  // 常见注入/框架特征字符串
   static const List<String> _mapsSignatures = [
-    'frida',
-    'gum-js-loop',
-    'gmain',
-    'linjector',
-    'xposed',
-    'XposedBridge',
-    'substrate',
-    'Substrate',
-    'riru',
-    'zygisk',
-    'lsposed',
-    'edxposed',
-    'whale',
-    'dex2jar',
-    'jdwp',
-    'android_server',
-    'frida-server',
-    'magisk',
+    'frida', 'gum-js-loop', 'gmain', 'linjector', 'xposed',
+    'XposedBridge', 'substrate', 'Substrate', 'riru', 'zygisk',
+    'lsposed', 'edxposed', 'whale', 'dex2jar', 'jdwp',
+    'android_server', 'frida-server', 'magisk',
   ];
-  // 常见 hook/注入框架包名与文件
   static const List<String> _xposedPaths = [
-    '/data/local/tmp/frida-server',
-    '/data/local/tmp/frida-server64',
-    '/data/local/tmp/re.frida.server',
-    '/data/local/tmp/linjector',
-    '/system/lib/libsubstrate.so',
-    '/system/lib/libxposed_art.so',
-    '/system/framework/XposedBridge.jar',
-    '/sdcard/frida-server',
+    '/data/local/tmp/frida-server', '/data/local/tmp/frida-server64',
+    '/data/local/tmp/re.frida.server', '/data/local/tmp/linjector',
+    '/system/lib/libsubstrate.so', '/system/lib/libxposed_art.so',
+    '/system/framework/XposedBridge.jar', '/sdcard/frida-server',
     '/data/data/de.robv.android.xposed.installer',
-    '/data/data/com.saurik.substrate',
-    '/data/data/io.github.lsposed.lsposed',
+    '/data/data/com.saurik.substrate', '/data/data/io.github.lsposed.lsposed',
   ];
 
-  /// 综合检测，任一命中返回 true（存在威胁）
   static Future<bool> checkAll() async {
     if (await _checkVpn()) return true;
     if (await _checkFridaPort()) return true;
@@ -65,13 +41,10 @@ class SecurityChecker {
     return false;
   }
 
-  /// 1. VPN 连接检测（用 vpn_connection_detector，准确率 ~95%，能检测第三方VPN）
   static Future<bool> _checkVpn() async {
     try {
-      final active = await VpnConnectionDetector.isVpnActive();
-      if (active) return true;
+      if (await VpnConnectionDetector.isVpnActive()) return true;
     } catch (_) {}
-    // 兜底：connectivity_plus 也查一次
     try {
       final results = await cc.Connectivity().checkConnectivity();
       for (final r in results) {
@@ -81,7 +54,6 @@ class SecurityChecker {
     return false;
   }
 
-  /// 2. Frida 默认端口扫描（仅 Android）
   static Future<bool> _checkFridaPort() async {
     if (!Platform.isAndroid) return false;
     for (final port in _fridaPorts) {
@@ -89,13 +61,12 @@ class SecurityChecker {
         final socket = await Socket.connect('127.0.0.1', port,
             timeout: const Duration(milliseconds: 300));
         socket.destroy();
-        return true; // 端口被占用 = Frida server 在跑
+        return true;
       } catch (_) {}
     }
     return false;
   }
 
-  /// 3. 扫描 /proc/self/maps 找注入特征（Android）
   static Future<bool> _checkMapsFile() async {
     if (!Platform.isAndroid) return false;
     try {
@@ -108,18 +79,14 @@ class SecurityChecker {
     return false;
   }
 
-  /// 4. 常见注入文件 / Xposed 数据目录检测
   static Future<bool> _checkInjectionFiles() async {
     if (!Platform.isAndroid) return false;
     for (final path in _xposedPaths) {
-      try {
-        if (await File(path).exists()) return true;
-      } catch (_) {}
+      try { if (await File(path).exists()) return true; } catch (_) {}
     }
     return false;
   }
 
-  /// 5. 系统代理检测（Android）
   static Future<bool> _checkSystemProxy() async {
     try {
       if (Platform.isAndroid) {
@@ -150,7 +117,6 @@ class _BypassAppState extends State<BypassApp> with WidgetsBindingObserver {
 
   @override
   void didChangeAppLifecycleState(AppLifecycleState state) {
-    // 每次恢复前台重新检测，防止中途开 VPN/hook
     if (state == AppLifecycleState.resumed) {
       _runSecurityCheck();
     }
@@ -161,21 +127,14 @@ class _BypassAppState extends State<BypassApp> with WidgetsBindingObserver {
     _checking = true;
     try {
       final attacked = await SecurityChecker.checkAll();
-      if (attacked && mounted) {
-        _exitDueToAttack();
-      }
-    } finally {
-      _checking = false;
-    }
+      if (attacked && mounted) _exitDueToAttack();
+    } finally { _checking = false; }
   }
 
-  /// 检测到威胁：弹不可关闭对话框强制退出
   Future<void> _exitDueToAttack() async {
     if (!mounted) return;
-    // 二次确认，防误报
     final again = await SecurityChecker.checkAll();
     if (!again) return;
-
     await showDialog<void>(
       context: context,
       barrierDismissible: false,
@@ -235,23 +194,14 @@ class _HomePageState extends State<HomePage> {
     return Scaffold(
       body: IndexedStack(
         index: _currentIndex,
-        children: const [
-          BypassPage(),
-          AboutPage(),
-        ],
+        children: const [BypassPage(), AboutPage()],
       ),
       bottomNavigationBar: NavigationBar(
         selectedIndex: _currentIndex,
         onDestinationSelected: (i) => setState(() => _currentIndex = i),
         destinations: const [
-          NavigationDestination(
-            icon: Icon(Icons.bolt),
-            label: 'bypass',
-          ),
-          NavigationDestination(
-            icon: Icon(Icons.info_outline),
-            label: '关于',
-          ),
+          NavigationDestination(icon: Icon(Icons.bolt), label: 'bypass'),
+          NavigationDestination(icon: Icon(Icons.info_outline), label: '关于'),
         ],
       ),
     );
@@ -268,28 +218,29 @@ class BypassPage extends StatefulWidget {
 class _BypassPageState extends State<BypassPage> {
   static const String _baseUrl = 'https://xn--qiv605b.top/bypass?url=';
   static const Duration _cooldown = Duration(minutes: 1);
+  static const Duration _requestTimeout = Duration(seconds: 200); // 匹配后端最高等待 180s
 
   final TextEditingController _controller = TextEditingController();
-  String? _resultText;
-  Map<String, dynamic>? _parsedJson;
+  Map<String, dynamic>? _result;
   String? _error;
   bool _loading = false;
+  int? _queuePosition;
   DateTime? _lastRequestAt;
+  Stopwatch? _requestTimer;
 
   @override
   void dispose() {
     _controller.dispose();
+    _requestTimer?.stop();
     super.dispose();
   }
 
   Future<void> _doRequest() async {
     final now = DateTime.now();
-    if (_lastRequestAt != null &&
-        now.difference(_lastRequestAt!) < _cooldown) {
+    if (_lastRequestAt != null && now.difference(_lastRequestAt!) < _cooldown) {
       final remaining = _cooldown - now.difference(_lastRequestAt!);
-      final secs = remaining.inSeconds + 1;
       ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('请求太频繁，请 ${secs}s 后再试')),
+        SnackBar(content: Text('请求太频繁，请 ${remaining.inSeconds + 1}s 后再试')),
       );
       return;
     }
@@ -302,77 +253,39 @@ class _BypassPageState extends State<BypassPage> {
       return;
     }
 
-    // 直接用正确域名请求（xn--qiv605b.top 已验证可解析）
     final url = Uri.parse('$_baseUrl${Uri.encodeComponent(input)}');
 
     setState(() {
       _loading = true;
       _error = null;
+      _result = null;
+      _queuePosition = null;
     });
+    _requestTimer = Stopwatch()..start();
 
     try {
-      final resp = await http.get(url).timeout(const Duration(seconds: 20));
+      final resp = await http.get(url).timeout(_requestTimeout);
+      _requestTimer?.stop();
       setState(() {
         _loading = false;
         _lastRequestAt = DateTime.now();
-        _resultText = resp.body;
-        _error = null;
-        _parsedJson = null;
-        try {
-          final decoded = jsonDecode(resp.body);
-          if (decoded is Map<String, dynamic>) {
-            _parsedJson = decoded;
+        final decoded = jsonDecode(resp.body);
+        if (decoded is Map<String, dynamic>) {
+          _result = decoded;
+          _queuePosition = decoded['position'] as int?;
+          if (decoded['success'] == false) {
+            _error = decoded['error'] as String? ?? '未知错误';
           }
-        } catch (_) {
-          _parsedJson = null;
+        } else {
+          _error = '返回格式异常';
         }
       });
     } catch (e) {
+      _requestTimer?.stop();
       setState(() {
         _loading = false;
         _error = '请求失败: $e';
       });
-    }
-  }
-
-  Widget _buildJsonTree(dynamic value) {
-    if (value is Map<String, dynamic>) {
-      return Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: value.entries.map((e) {
-          return Padding(
-            padding: const EdgeInsets.only(left: 12, top: 4),
-            child: Row(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text(
-                  '${e.key}: ',
-                  style: const TextStyle(
-                    fontWeight: FontWeight.bold,
-                    color: Colors.deepPurple,
-                  ),
-                ),
-                Expanded(child: _buildJsonTree(e.value)),
-              ],
-            ),
-          );
-        }).toList(),
-      );
-    } else if (value is List) {
-      return Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: List.generate(value.length, (i) {
-          return Padding(
-            padding: const EdgeInsets.only(left: 12, top: 4),
-            child: _buildJsonTree(value[i]),
-          );
-        }),
-      );
-    } else {
-      return Text(
-        value.toString(),
-        style: const TextStyle(color: Colors.black87),
-      );
     }
   }
 
@@ -399,8 +312,7 @@ class _BypassPageState extends State<BypassPage> {
               onPressed: _loading ? null : _doRequest,
               icon: _loading
                   ? const SizedBox(
-                      width: 18,
-                      height: 18,
+                      width: 18, height: 18,
                       child: CircularProgressIndicator(strokeWidth: 2),
                     )
                   : const Icon(Icons.play_arrow),
@@ -426,26 +338,159 @@ class _BypassPageState extends State<BypassPage> {
 
   Widget _buildResult() {
     if (_loading) {
-      return const Center(child: CircularProgressIndicator());
+      return Center(
+        child: Column(
+          mainAxisAlignment: MainAxisAlignment.center,
+          children: [
+            const CircularProgressIndicator(),
+            const SizedBox(height: 16),
+            if (_requestTimer != null)
+              Text(
+                '等待中 ${_requestTimer!.elapsed.inSeconds}s',
+                style: const TextStyle(color: Colors.grey),
+              ),
+            const SizedBox(height: 8),
+            const Text('正在排队处理，请稍候...',
+              style: TextStyle(color: Colors.grey),
+            ),
+          ],
+        ),
+      );
     }
     if (_error != null) {
       return SingleChildScrollView(
         child: Text(_error!, style: const TextStyle(color: Colors.red)),
       );
     }
-    if (_resultText == null) {
+    if (_result == null) {
       return const Center(
         child: Text('解析结果会显示在这里', style: TextStyle(color: Colors.grey)),
       );
     }
+
+    final success = _result!['success'] == true;
+    final key = _result!['key'] as String?;
+    final author = _result!['author'] as String?;
+    final api = _result!['api'] as String?;
+    final took = _result!['took'];
+    final cost = _result!['cost'];
+    final position = _result!['position'] as int?;
+
     return SingleChildScrollView(
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          if (_parsedJson != null) ...[
-            _buildJsonTree(_parsedJson),
-          ] else
-            SelectableText(_resultText!),
+          // 队列位置
+          if (position != null && position > 0)
+            Container(
+              margin: const EdgeInsets.only(bottom: 12),
+              padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+              decoration: BoxDecoration(
+                color: Colors.orange.shade50,
+                borderRadius: BorderRadius.circular(6),
+                border: Border.all(color: Colors.orange.shade200),
+              ),
+              child: Row(
+                children: [
+                  Icon(Icons.queue, size: 18, color: Colors.orange.shade700),
+                  const SizedBox(width: 6),
+                  Text('当前在队列第 $position 位',
+                    style: TextStyle(color: Colors.orange.shade800, fontWeight: FontWeight.w500),
+                  ),
+                ],
+              ),
+            ),
+
+          if (success && key != null) ...[
+            // key 显示 + 复制按钮
+            Container(
+              width: double.infinity,
+              padding: const EdgeInsets.all(14),
+              decoration: BoxDecoration(
+                color: Colors.deepPurple.shade50,
+                borderRadius: BorderRadius.circular(10),
+                border: Border.all(color: Colors.deepPurple.shade200),
+              ),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  const Text('Key', style: TextStyle(fontSize: 12, color: Colors.grey)),
+                  const SizedBox(height: 4),
+                  Row(
+                    children: [
+                      Expanded(
+                        child: SelectableText(key,
+                          style: const TextStyle(
+                            fontSize: 16, fontWeight: FontWeight.bold,
+                            color: Colors.deepPurple, letterSpacing: 1.2,
+                          ),
+                        ),
+                      ),
+                      IconButton(
+                        icon: const Icon(Icons.copy, size: 20),
+                        tooltip: '复制 Key',
+                        onPressed: () {
+                          Clipboard.setData(ClipboardData(text: key));
+                          ScaffoldMessenger.of(context).showSnackBar(
+                            const SnackBar(content: Text('Key 已复制')),
+                          );
+                        },
+                      ),
+                    ],
+                  ),
+                ],
+              ),
+            ),
+          ],
+
+          if (!success) ...[
+            Container(
+              width: double.infinity,
+              padding: const EdgeInsets.all(14),
+              decoration: BoxDecoration(
+                color: Colors.red.shade50,
+                borderRadius: BorderRadius.circular(10),
+                border: Border.all(color: Colors.red.shade200),
+              ),
+              child: Row(
+                children: [
+                  const Icon(Icons.error_outline, color: Colors.red),
+                  const SizedBox(width: 8),
+                  Expanded(
+                    child: Text(_result!['error'] as String? ?? '处理失败',
+                      style: const TextStyle(color: Colors.red.shade700),
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ],
+
+          const SizedBox(height: 16),
+
+          // 详细信息
+          _infoRow('作者', author ?? '-'),
+          _infoRow('API', api ?? '-'),
+          _infoRow('耗时', '${took ?? cost ?? 0}s'),
+          if (position != null) _infoRow('排队位置', position.toString()),
+        ],
+      ),
+    );
+  }
+
+  Widget _infoRow(String label, String value) {
+    return Padding(
+      padding: const EdgeInsets.symmetric(vertical: 4),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          SizedBox(
+            width: 72,
+            child: Text(label, style: const TextStyle(color: Colors.grey, fontSize: 14)),
+          ),
+          Expanded(
+            child: Text(value, style: const TextStyle(fontSize: 14, fontWeight: FontWeight.w500)),
+          ),
         ],
       ),
     );
@@ -458,30 +503,57 @@ class AboutPage extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return Center(
-      child: Column(
-        mainAxisAlignment: MainAxisAlignment.center,
-        children: [
-          const Icon(Icons.person, size: 64, color: Colors.deepPurple),
-          const SizedBox(height: 16),
-          const Text(
-            'Bypass',
-            style: TextStyle(fontSize: 28, fontWeight: FontWeight.bold),
-          ),
-          const SizedBox(height: 8),
-          const Text('作者：eri', style: TextStyle(fontSize: 18)),
-          const SizedBox(height: 4),
-          const Text('QQ：3606359397', style: TextStyle(fontSize: 18)),
-          const SizedBox(height: 24),
-          TextButton.icon(
-            icon: const Icon(Icons.chat),
-            label: const Text('联系作者'),
-            onPressed: () {
-              ScaffoldMessenger.of(context).showSnackBar(
-                const SnackBar(content: Text('QQ：3606359397')),
-              );
-            },
-          ),
-        ],
+      child: Padding(
+        padding: const EdgeInsets.symmetric(horizontal: 32),
+        child: Column(
+          mainAxisAlignment: MainAxisAlignment.center,
+          children: [
+            const Icon(Icons.bolt, size: 48, color: Colors.deepPurple),
+            const SizedBox(height: 12),
+            const Text(
+              'Bypass',
+              style: TextStyle(fontSize: 28, fontWeight: FontWeight.bold),
+            ),
+            const SizedBox(height: 8),
+            const Text('作者：eri', style: TextStyle(fontSize: 16)),
+            const SizedBox(height: 4),
+            const Text('QQ：3606359397', style: TextStyle(fontSize: 16)),
+            const SizedBox(height: 16),
+            Container(
+              padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 12),
+              decoration: BoxDecoration(
+                color: Colors.deepPurple.shade50,
+                borderRadius: BorderRadius.circular(12),
+                border: Border.all(color: Colors.deepPurple.shade200),
+              ),
+              child: Column(
+                children: [
+                  const Icon(Icons.groups, color: Colors.deepPurple, size: 28),
+                  const SizedBox(height: 6),
+                  const Text('QQ群', style: TextStyle(fontSize: 13, color: Colors.grey)),
+                  const SizedBox(height: 2),
+                  const Text('1106569806',
+                    style: TextStyle(
+                      fontSize: 18, fontWeight: FontWeight.bold,
+                      color: Colors.deepPurple, letterSpacing: 1.5,
+                    ),
+                  ),
+                ],
+              ),
+            ),
+            const SizedBox(height: 20),
+            TextButton.icon(
+              icon: const Icon(Icons.copy),
+              label: const Text('复制群号'),
+              onPressed: () {
+                Clipboard.setData(const ClipboardData(text: '1106569806'));
+                ScaffoldMessenger.of(context).showSnackBar(
+                  const SnackBar(content: Text('群号已复制')),
+                );
+              },
+            ),
+          ],
+        ),
       ),
     );
   }
