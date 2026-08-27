@@ -52,9 +52,9 @@ jobs:
 
       - name: Add permissions to manifest
         run: |
-          sed -i 's|<application|<uses-permission android:name="android.permission.INTERNET"/><uses-permission android:name="android.permission.ACCESS_NETWORK_STATE"/><uses-permission android:name="android.permission.FOREGROUND_SERVICE"/><uses-permission android:name="android.permission.POST_NOTIFICATIONS"/><application|' android/app/src/main/AndroidManifest.xml
+          sed -i 's|<application|<uses-permission android:name="android.permission.INTERNET"/><uses-permission android:name="android.permission.ACCESS_NETWORK_STATE"/><uses-permission android:name="android.permission.POST_NOTIFICATIONS"/><application|' android/app/src/main/AndroidManifest.xml
           sed -i 's|android:label="bypass_app"|android:label="Bypass"|' android/app/src/main/AndroidManifest.xml
-          grep -n 'INTERNET\|ACCESS_NETWORK_STATE\|FOREGROUND_SERVICE\|POST_NOTIFICATIONS' android/app/src/main/AndroidManifest.xml || true
+          grep -n 'INTERNET\|ACCESS_NETWORK_STATE\|POST_NOTIFICATIONS' android/app/src/main/AndroidManifest.xml || true
 
       # ====== flutter_local_notifications 需要 core library desugaring ======
       - name: Enable core library desugaring

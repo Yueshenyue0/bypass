@@ -32,8 +32,6 @@ class _BypassAppState extends State<BypassApp> with WidgetsBindingObserver {
   Future<void> _initServices() async {
     // 初始化通知
     await NotifyService.init();
-    // 启动前台保活服务（常驻通知）
-    if (mounted) await NotifyService.startForegroundTask();
     // 加载主题
     ThemeStore.load().then((m) {
       if (mounted) setState(() => _themeMode = m);
