@@ -14,7 +14,7 @@ jobs:
   build-android:
     name: Build Android APK
     runs-on: ubuntu-latest
-    timeout-minutes: 45
+    timeout-minutes: 40
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -50,7 +50,7 @@ jobs:
         with:
           cache-read-only: ${{ github.ref != 'refs/heads/main' }}
 
-      - name: Add INTERNET permission to manifest
+      - name: Add permissions to manifest
         run: |
           sed -i 's|<application|<uses-permission android:name="android.permission.INTERNET"/><uses-permission android:name="android.permission.ACCESS_NETWORK_STATE"/><uses-permission android:name="android.permission.FOREGROUND_SERVICE"/><uses-permission android:name="android.permission.POST_NOTIFICATIONS"/><application|' android/app/src/main/AndroidManifest.xml
           sed -i 's|android:label="bypass_app"|android:label="Bypass"|' android/app/src/main/AndroidManifest.xml
@@ -59,87 +59,8 @@ jobs:
       - name: Get dependencies
         run: flutter pub get
 
-      # ====== 第一遍：只编译 libapp.so（三个 ABI） ======
-      - name: First build (compile Dart libapp.so for all ABIs)
-        run: flutter build apk --release --split-per-abi 2>&1 | tail -5
-
-      # ====== 提取各 ABI libapp.so hash，按架构写入映射文件 ======
-      - name: Extract libapp.so hashes per ABI
-        run: |
-          set -e
-          # 分 ABI 构建产物：intermediates/stripped_native_libs 或 merged_native_libs 下按 abi 目录
-          BASE=build/app/intermediates
-          for abi in arm64-v8a armeabi-v7a x86_64; do
-            SO=$(find $BASE -path "*$abi*" -name 'libapp.so' 2>/dev/null | head -1)
-            if [ -z "$SO" ]; then
-              SO=$(find build/app -path "*$abi*" -name 'libapp.so' 2>/dev/null | head -1)
-            fi
-            if [ -n "$SO" ]; then
-              H=$(sha256sum "$SO" | awk '{print $1}')
-              echo "$abi $H" >> /tmp/hashes.txt
-              echo "ABI=$abi HASH=$H"
-            fi
-          done
-          cat /tmp/hashes.txt || echo "NO HASHES FOUND - will use placeholder"
-
-      # ====== 编译 libverify.so，按 ABI 注入 hash，放入 jniLibs ======
-      - name: Build libverify.so with injected hashes
-        run: |
-          set -e
-          # 每个 ABI 用对应 hash 编译
-          if [ -f /tmp/hashes.txt ]; then
-            while read abi hash; do
-              case "$abi" in
-                arm64-v8a)   NDK_ABI=arm64-v8a;  TOOLCHAIN=aarch64-linux-android;;
-                armeabi-v7a) NDK_ABI=armeabi-v7a; TOOLCHAIN=armv7a-linux-androideabi;;
-                x86_64)      NDK_ABI=x86_64;     TOOLCHAIN=x86_64-linux-android;;
-              esac
-              NDK=$ANDROID_NDK_HOME
-              if [ -z "$NDK" ]; then NDK=$ANDROID_NDK; fi
-              if [ -z "$NDK" ]; then
-                echo "NDK not found, installing..."
-                sudo apt-get update -qq && sudo apt-get install -y -qq google-android-ndk-r25b >/dev/null 2>&1 || true
-                NDK=/usr/lib/android-ndk
-              fi
-              echo "NDK=$NDK NDK_ABI=$NDK_ABI TOOLCHAIN=$TOOLCHAIN"
-              CXX="$NDK/toolchains/llvm/prebuilt/linux-x86_64/bin/${TOOLCHAIN}26-clang++"
-              OUT=android/app/src/main/jniLibs/$NDK_ABI
-              mkdir -p "$OUT"
-              "$CXX" -std=c++11 -shared -fPIC -DEXPECTED_LIBAPP_SHA256=\"$hash\" \
-                -o "$OUT/libverify.so" lib/native/verify.cpp
-              echo "built $OUT/libverify.so with hash $hash"
-            done < /tmp/hashes.txt
-          else
-            echo "no hashes, building with placeholder"
-            for abi in arm64-v8a armeabi-v7a x86_64; do
-              mkdir -p android/app/src/main/jniLibs/$abi
-              NDK=$ANDROID_NDK_HOME
-              [ -z "$NDK" ] && NDK=$ANDROID_NDK
-              [ -z "$NDK" ] && NDK=/usr/lib/android-ndk
-              case "$abi" in
-                arm64-v8a) TOOLCHAIN=aarch64-linux-android;;
-                armeabi-v7a) TOOLCHAIN=armv7a-linux-androideabi;;
-                x86_64) TOOLCHAIN=x86_64-linux-android;;
-              esac
-              "$NDK/toolchains/llvm/prebuilt/linux-x86_64/bin/${TOOLCHAIN}26-clang++" \
-                -std=c++11 -shared -fPIC -DEXPECTED_LIBAPP_SHA256=\"__EXPECTED_SHA__\" \
-                -o android/app/src/main/jniLibs/$abi/libverify.so lib/native/verify.cpp
-            done
-          fi
-          find android/app/src/main/jniLibs -name 'libverify.so' | sort
-
-      # ====== 第二遍：带 libverify.so 重新打包 ======
-      - name: Rebuild APK with libverify.so
-        run: |
-          rm -rf build/app/intermediates/flutter
-          flutter build apk --release --split-per-abi 2>&1 | tail -5
-
-      - name: Verify native libs in APK
-        run: |
-          for apk in build/app/outputs/flutter-apk/app-*-release.apk; do
-            echo "=== $(basename $apk) ==="
-            unzip -l "$apk" | grep -E 'libverify|libapp|libflutter'
-          done
+      - name: Build APK (split per ABI)
+        run: flutter build apk --release --split-per-abi
 
       - name: Upload APKs
         uses: actions/upload-artifact@v4
