@@ -208,7 +208,7 @@ class _BypassPageState extends State<BypassPage> {
                       child: CircularProgressIndicator(strokeWidth: 2),
                     )
                   : const Icon(Icons.play_arrow),
-              label: Text(_loading ? '请求中...' : '解析'),
+              label: Text(_loading ? '请求中...' : 'bypass'),
             ),
           ),
           const SizedBox(height: 12),
@@ -247,18 +247,9 @@ class _BypassPageState extends State<BypassPage> {
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           if (_parsedJson != null) ...[
-            const Text(
-              'JSON 解析:',
-              style: TextStyle(fontWeight: FontWeight.bold),
-            ),
-            const SizedBox(height: 8),
             _buildJsonTree(_parsedJson),
-            const SizedBox(height: 16),
-            const Divider(),
-          ],
-          const Text('原始返回:', style: TextStyle(fontWeight: FontWeight.bold)),
-          const SizedBox(height: 8),
-          SelectableText(_resultText!),
+          ] else
+            SelectableText(_resultText!),
         ],
       ),
     );
