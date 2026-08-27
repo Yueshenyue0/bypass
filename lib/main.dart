@@ -70,7 +70,7 @@ class BypassPage extends StatefulWidget {
 }
 
 class _BypassPageState extends State<BypassPage> {
-  static const String _baseUrl = 'https://春秋.top/bypass?url=';
+  static const String _baseUrl = 'https://xn--qiv605b.top/bypass?url=';
   static const Duration _cooldown = Duration(minutes: 1);
 
   final TextEditingController _controller = TextEditingController();
@@ -106,7 +106,9 @@ class _BypassPageState extends State<BypassPage> {
       return;
     }
 
+    // 直接用正确域名请求（xn--qiv605b.top 已验证可解析）
     final url = Uri.parse('$_baseUrl${Uri.encodeComponent(input)}');
+
     setState(() {
       _loading = true;
       _error = null;
