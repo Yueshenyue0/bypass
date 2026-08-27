@@ -471,7 +471,7 @@ class _BypassPageState extends State<BypassPage> {
                   Row(
                     children: [
                       Expanded(
-                        child: SelectableText(key,
+                        child: Text(key,
                           style: const TextStyle(
                             fontSize: 16, fontWeight: FontWeight.w600,
                             color: CupertinoColors.systemPurple, letterSpacing: 1.2,
