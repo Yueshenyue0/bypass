@@ -126,7 +126,7 @@ class SecurityChecker {
   static Future<bool> _checkDebugger() async {
     if (kDebugMode) return false; // 调试构建不检测
     try {
-      if (await Debug.isDebuggerConnected) return true;
+      if (await developer.debuggerConnectionInfo() != null) return true;
     } catch (_) {}
     return false;
   }
