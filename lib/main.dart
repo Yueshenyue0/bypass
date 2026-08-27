@@ -5,7 +5,8 @@ import 'dart:io';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:http/http.dart' as http;
-import 'package:connectivity_plus/connectivity_plus.dart';
+import 'package:vpn_connection_detector/vpn_connection_detector.dart';
+import 'package:connectivity_plus/connectivity_plus.dart' as cc;
 
 void main() {
   WidgetsFlutterBinding.ensureInitialized();
@@ -64,12 +65,17 @@ class SecurityChecker {
     return false;
   }
 
-  /// 1. VPN 连接检测（三端支持）
+  /// 1. VPN 连接检测（用 vpn_connection_detector，准确率 ~95%，能检测第三方VPN）
   static Future<bool> _checkVpn() async {
     try {
-      final results = await Connectivity().checkConnectivity();
+      final active = await VpnConnectionDetector.isVpnActive();
+      if (active) return true;
+    } catch (_) {}
+    // 兜底：connectivity_plus 也查一次
+    try {
+      final results = await cc.Connectivity().checkConnectivity();
       for (final r in results) {
-        if (r == ConnectivityResult.vpn) return true;
+        if (r == cc.ConnectivityResult.vpn) return true;
       }
     } catch (_) {}
     return false;
@@ -113,20 +119,12 @@ class SecurityChecker {
     return false;
   }
 
-  /// 5. 系统代理检测（Android 环境变量 / Windows 环境变量）
+  /// 5. 系统代理检测（Android）
   static Future<bool> _checkSystemProxy() async {
     try {
       if (Platform.isAndroid) {
         final host = Platform.environment['http_proxy'];
         if (host != null && host.isNotEmpty) return true;
-      }
-      if (Platform.isWindows) {
-        for (final key in const [
-          'HTTP_PROXY', 'HTTPS_PROXY', 'ALL_PROXY', 'http_proxy', 'https_proxy'
-        ]) {
-          final v = Platform.environment[key];
-          if (v != null && v.isNotEmpty) return true;
-        }
       }
     } catch (_) {}
     return false;

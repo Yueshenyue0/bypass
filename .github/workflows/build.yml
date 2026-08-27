@@ -34,22 +34,3 @@ jobs:
           name: bypass-apk
           path: build/app/outputs/flutter-apk/app-release.apk
           if-no-files-found: warn
-
-  build-windows:
-    name: Build Windows EXE
-    runs-on: windows-latest
-    steps:
-      - name: Checkout
-        uses: actions/checkout@v4
-      - name: Setup Flutter
-        uses: subosito/flutter-action@v2
-      - name: Create Windows project files
-        run: flutter create . --project-name bypass_app --org com.eri --platforms windows
-      - name: Build Windows
-        run: flutter pub get && flutter build windows --release
-      - name: Upload Windows build
-        uses: actions/upload-artifact@v4
-        with:
-          name: bypass-windows
-          path: build/windows/x64/runner/Release/
-          if-no-files-found: warn
