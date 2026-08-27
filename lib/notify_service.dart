@@ -1,3 +1,6 @@
+import 'dart:async';
+import 'dart:io';
+
 import 'package:flutter/material.dart';
 import 'package:flutter_local_notifications/flutter_local_notifications.dart';
 import 'package:flutter_foreground_task/flutter_foreground_task.dart';
@@ -21,7 +24,12 @@ class NotifyService {
             AndroidFlutterLocalNotificationsPlugin>()
         ?.requestNotificationsPermission();
 
-    // 精确闹钟权限（非必须，跳过）
+    // 前台服务通知权限（flutter_foreground_task）
+    final NotificationPermission p =
+        await FlutterForegroundTask.checkNotificationPermission();
+    if (p != NotificationPermission.granted) {
+      await FlutterForegroundTask.requestNotificationPermission();
+    }
   }
 
   /// 绕过成功通知
@@ -40,7 +48,7 @@ class NotifyService {
       '绕过成功',
       'Key 已生成，点击复制',
       details,
-      payload: key, // 携带 key 供点击回调使用
+      payload: key,
     );
   }
 
@@ -59,36 +67,43 @@ class NotifyService {
 
   /// 启动前台服务（保活，显示常驻通知）
   static Future<void> startForegroundTask() async {
-    await FlutterForegroundTask.init(
-      androidNotificationOptions: AndroidNotificationOptions(
+    if (await FlutterForegroundTask.isRunningService) {
+      await FlutterForegroundTask.restartService();
+      return;
+    }
+
+    FlutterForegroundTask.init(
+      androidNotificationOptions: const AndroidNotificationOptions(
         channelId: 'bypass_foreground',
         channelName: 'Bypass 保活服务',
         channelDescription: '保持 Bypass 后台运行，及时接收绕过结果',
-        channelImportance: NotificationChannelImportance.LOW,
-        priority: NotificationPriority.LOW,
-        iconData: const NotificationIconData(
-          resType: ResourceType.mipmap,
-          resPrefix: ResourcePrefix.ic,
-          name: 'ic_launcher',
-          backgroundColor: '#673AB7',
-        ),
+        onlyAlertOnce: true,
       ),
       iosNotificationOptions: const IOSNotificationOptions(
         showNotification: true,
         playSound: false,
       ),
       foregroundTaskOptions: const ForegroundTaskOptions(
-        interval: 5000,
-        isOnceEvent: false,
+        eventAction: ForegroundTaskEventAction.repeat(5000),
         autoRunOnBoot: true,
+        autoRunOnMyPackageReplaced: true,
         allowWakeLock: true,
         allowWifiLock: true,
       ),
     );
 
-    FlutterForegroundTask.startService(
+    if (Platform.isAndroid) {
+      // Android 12+ 忽略电池优化，防止杀后台
+      if (!await FlutterForegroundTask.isIgnoringBatteryOptimizations) {
+        await FlutterForegroundTask.requestIgnoreBatteryOptimization();
+      }
+    }
+
+    await FlutterForegroundTask.startService(
+      serviceId: 256,
       notificationTitle: 'Bypass 运行中',
       notificationText: '后台等待绕过结果中...',
+      notificationIcon: null,
       callback: startCallback,
     );
   }
@@ -102,15 +117,18 @@ void startCallback() {
 
 class MyTaskHandler extends TaskHandler {
   @override
-  void onStart(DateTime timestamp, TaskStarter starter) {
-    // 后台定期运行（每 interval 一次）
+  Future<void> onStart(DateTime timestamp, TaskStarter starter) async {
+    // 后台定期运行
   }
 
   @override
   void onRepeatEvent(DateTime timestamp) {
-    // 可选：在这里做心跳
+    // 心跳（保持服务存活）
   }
 
   @override
-  void onDestroy(DateTime timestamp) {}
+  Future<void> onDestroy(DateTime timestamp, bool isTimeout) async {}
+
+  @override
+  void onNotificationPressed() {}
 }
