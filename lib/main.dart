@@ -1,7 +1,7 @@
 import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
-import 'package:flutter/material.dart';
+import 'package:flutter/cupertino.dart';
 import 'package:flutter/services.dart';
 import 'package:http/http.dart' as http;
 import 'package:vpn_connection_detector/vpn_connection_detector.dart';
@@ -135,23 +135,26 @@ class _BypassAppState extends State<BypassApp> with WidgetsBindingObserver {
     if (!mounted) return;
     final again = await SecurityChecker.checkAll();
     if (!again) return;
-    await showDialog<void>(
+    await showCupertinoDialog<void>(
       context: context,
       barrierDismissible: false,
-      barrierColor: Colors.black87,
       builder: (context) => PopScope(
         canPop: false,
-        child: AlertDialog(
-          icon: const Icon(Icons.gpp_bad, color: Colors.red, size: 48),
-          title: const Text('安全警告'),
-          content: const Text(
-            '检测到异常环境（VPN / 代理 / Hook / 调试框架）。\n为保护数据安全，应用将被强制退出。',
-            textAlign: TextAlign.center,
+        child: CupertinoAlertDialog(
+          title: const Icon(CupertinoIcons.shield_slash_fill,
+              color: CupertinoColors.systemRed, size: 48),
+          content: const Padding(
+            padding: EdgeInsets.only(top: 12),
+            child: Text(
+              '检测到异常环境（VPN / 代理 / Hook / 调试框架）。\n为保护数据安全，应用将被强制退出。',
+              textAlign: TextAlign.center,
+            ),
           ),
           actions: [
-            TextButton(
+            CupertinoDialogAction(
+              isDestructiveAction: true,
               onPressed: () => exit(0),
-              child: const Text('退出', style: TextStyle(color: Colors.red)),
+              child: const Text('退出'),
             ),
           ],
         ),
@@ -168,11 +171,11 @@ class _BypassAppState extends State<BypassApp> with WidgetsBindingObserver {
 
   @override
   Widget build(BuildContext context) {
-    return MaterialApp(
+    return CupertinoApp(
       title: 'Bypass',
-      theme: ThemeData(
-        colorScheme: ColorScheme.fromSeed(seedColor: Colors.deepPurple),
-        useMaterial3: true,
+      theme: const CupertinoThemeData(
+        primaryColor: CupertinoColors.systemPurple,
+        scaffoldBackgroundColor: CupertinoColors.systemGroupedBackground,
       ),
       home: const HomePage(),
     );
@@ -191,19 +194,26 @@ class _HomePageState extends State<HomePage> {
 
   @override
   Widget build(BuildContext context) {
-    return Scaffold(
-      body: IndexedStack(
-        index: _currentIndex,
-        children: const [BypassPage(), AboutPage()],
-      ),
-      bottomNavigationBar: NavigationBar(
-        selectedIndex: _currentIndex,
-        onDestinationSelected: (i) => setState(() => _currentIndex = i),
-        destinations: const [
-          NavigationDestination(icon: Icon(Icons.bolt), label: 'bypass'),
-          NavigationDestination(icon: Icon(Icons.info_outline), label: '关于'),
+    return CupertinoTabScaffold(
+      tabBar: CupertinoTabBar(
+        items: const [
+          BottomNavigationBarItem(
+            icon: Icon(CupertinoIcons.bolt_fill),
+            label: 'bypass',
+          ),
+          BottomNavigationBarItem(
+            icon: Icon(CupertinoIcons.info_circle),
+            label: '关于',
+          ),
         ],
       ),
+      tabBuilder: (context, index) {
+        return CupertinoTabView(
+          builder: (context) => index == 0
+              ? const BypassPage()
+              : const AboutPage(),
+        );
+      },
     );
   }
 }
@@ -239,17 +249,13 @@ class _BypassPageState extends State<BypassPage> {
     final now = DateTime.now();
     if (_lastRequestAt != null && now.difference(_lastRequestAt!) < _cooldown) {
       final remaining = _cooldown - now.difference(_lastRequestAt!);
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('请求太频繁，请 ${remaining.inSeconds + 1}s 后再试')),
-      );
+      _showSnack('请求太频繁，请 ${remaining.inSeconds + 1}s 后再试');
       return;
     }
 
     final input = _controller.text.trim();
     if (input.isEmpty) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('请输入链接')),
-      );
+      _showSnack('请输入链接');
       return;
     }
 
@@ -289,49 +295,88 @@ class _BypassPageState extends State<BypassPage> {
     }
   }
 
+  void _showSnack(String message) {
+    final overlay = Overlay.of(context);
+    late OverlayEntry entry;
+    entry = OverlayEntry(
+      builder: (context) => Positioned(
+        bottom: 90,
+        left: 24,
+        right: 24,
+        child: IgnorePointer(
+          child: Container(
+            padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
+            decoration: BoxDecoration(
+              color: CupertinoColors.black.withValues(alpha: 0.75),
+              borderRadius: BorderRadius.circular(20),
+            ),
+            child: Text(message,
+              textAlign: TextAlign.center,
+              style: const TextStyle(color: CupertinoColors.white),
+            ),
+          ),
+        ),
+      ),
+    );
+    overlay.insert(entry);
+    Future.delayed(const Duration(seconds: 2), entry.remove);
+  }
+
   @override
   Widget build(BuildContext context) {
-    return Padding(
-      padding: const EdgeInsets.all(16),
-      child: Column(
-        children: [
-          const SizedBox(height: 30),
-          TextField(
-            controller: _controller,
-            decoration: const InputDecoration(
-              labelText: '输入链接',
-              hintText: '例如 https://auth.platorelay.com',
-              border: OutlineInputBorder(),
-              prefixIcon: Icon(Icons.link),
-            ),
-          ),
-          const SizedBox(height: 12),
-          SizedBox(
-            width: double.infinity,
-            child: FilledButton.icon(
-              onPressed: _loading ? null : _doRequest,
-              icon: _loading
-                  ? const SizedBox(
-                      width: 18, height: 18,
-                      child: CircularProgressIndicator(strokeWidth: 2),
-                    )
-                  : const Icon(Icons.play_arrow),
-              label: Text(_loading ? '请求中...' : 'bypass'),
-            ),
-          ),
-          const SizedBox(height: 12),
-          Expanded(
-            child: Container(
-              width: double.infinity,
-              padding: const EdgeInsets.all(12),
-              decoration: BoxDecoration(
-                color: Colors.grey.shade100,
-                borderRadius: BorderRadius.circular(8),
+    return CupertinoPageScaffold(
+      navigationBar: const CupertinoNavigationBar(
+        middle: Text('Bypass'),
+      ),
+      child: SafeArea(
+        child: Padding(
+          padding: const EdgeInsets.all(16),
+          child: Column(
+            children: [
+              const SizedBox(height: 20),
+              CupertinoTextField(
+                controller: _controller,
+                placeholder: '例如 https://auth.platorelay.com',
+                padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 14),
+                prefix: const Padding(
+                  padding: EdgeInsets.only(left: 8),
+                  child: Icon(CupertinoIcons.link, size: 20,
+                      color: CupertinoColors.systemGrey),
+                ),
+                decoration: BoxDecoration(
+                  border: Border.all(color: CupertinoColors.systemGrey4),
+                  borderRadius: BorderRadius.circular(10),
+                ),
               ),
-              child: _buildResult(),
-            ),
+              const SizedBox(height: 12),
+              SizedBox(
+                width: double.infinity,
+                child: CupertinoButton.filled(
+                  onPressed: _loading ? null : _doRequest,
+                  child: _loading
+                      ? const SizedBox(
+                          width: 20, height: 20,
+                          child: CupertinoActivityIndicator(),
+                        )
+                      : const Text('bypass', style: TextStyle(fontSize: 16)),
+                ),
+              ),
+              const SizedBox(height: 12),
+              Expanded(
+                child: Container(
+                  width: double.infinity,
+                  padding: const EdgeInsets.all(12),
+                  decoration: BoxDecoration(
+                    color: CupertinoColors.systemBackground,
+                    borderRadius: BorderRadius.circular(10),
+                    border: Border.all(color: CupertinoColors.systemGrey5),
+                  ),
+                  child: _buildResult(),
+                ),
+              ),
+            ],
           ),
-        ],
+        ),
       ),
     );
   }
@@ -342,16 +387,16 @@ class _BypassPageState extends State<BypassPage> {
         child: Column(
           mainAxisAlignment: MainAxisAlignment.center,
           children: [
-            const CircularProgressIndicator(),
+            const CupertinoActivityIndicator(),
             const SizedBox(height: 16),
             if (_requestTimer != null)
               Text(
                 '等待中 ${_requestTimer!.elapsed.inSeconds}s',
-                style: const TextStyle(color: Colors.grey),
+                style: const TextStyle(color: CupertinoColors.systemGrey),
               ),
             const SizedBox(height: 8),
             const Text('正在排队处理，请稍候...',
-              style: TextStyle(color: Colors.grey),
+              style: TextStyle(color: CupertinoColors.systemGrey),
             ),
           ],
         ),
@@ -359,12 +404,16 @@ class _BypassPageState extends State<BypassPage> {
     }
     if (_error != null) {
       return SingleChildScrollView(
-        child: Text(_error!, style: const TextStyle(color: Colors.red)),
+        child: Text(_error!,
+          style: const TextStyle(color: CupertinoColors.systemRed),
+        ),
       );
     }
     if (_result == null) {
       return const Center(
-        child: Text('解析结果会显示在这里', style: TextStyle(color: Colors.grey)),
+        child: Text('解析结果会显示在这里',
+          style: TextStyle(color: CupertinoColors.systemGrey),
+        ),
       );
     }
 
@@ -386,16 +435,19 @@ class _BypassPageState extends State<BypassPage> {
               margin: const EdgeInsets.only(bottom: 12),
               padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
               decoration: BoxDecoration(
-                color: Colors.orange.shade50,
-                borderRadius: BorderRadius.circular(6),
-                border: Border.all(color: Colors.orange.shade200),
+                color: CupertinoColors.systemOrange.withValues(alpha: 0.15),
+                borderRadius: BorderRadius.circular(8),
               ),
               child: Row(
                 children: [
-                  Icon(Icons.queue, size: 18, color: Colors.orange.shade700),
+                  const Icon(CupertinoIcons.timer,
+                      size: 18, color: CupertinoColors.systemOrange),
                   const SizedBox(width: 6),
                   Text('当前在队列第 $position 位',
-                    style: TextStyle(color: Colors.orange.shade800, fontWeight: FontWeight.w500),
+                    style: TextStyle(
+                      color: CupertinoColors.systemOrange,
+                      fontWeight: FontWeight.w600,
+                    ),
                   ),
                 ],
               ),
@@ -407,33 +459,32 @@ class _BypassPageState extends State<BypassPage> {
               width: double.infinity,
               padding: const EdgeInsets.all(14),
               decoration: BoxDecoration(
-                color: Colors.deepPurple.shade50,
+                color: CupertinoColors.systemPurple.withValues(alpha: 0.08),
                 borderRadius: BorderRadius.circular(10),
-                border: Border.all(color: Colors.deepPurple.shade200),
               ),
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  const Text('Key', style: TextStyle(fontSize: 12, color: Colors.grey)),
+                  const Text('Key',
+                    style: TextStyle(fontSize: 12, color: CupertinoColors.systemGrey)),
                   const SizedBox(height: 4),
                   Row(
                     children: [
                       Expanded(
                         child: SelectableText(key,
                           style: const TextStyle(
-                            fontSize: 16, fontWeight: FontWeight.bold,
-                            color: Colors.deepPurple, letterSpacing: 1.2,
+                            fontSize: 16, fontWeight: FontWeight.w600,
+                            color: CupertinoColors.systemPurple, letterSpacing: 1.2,
                           ),
                         ),
                       ),
-                      IconButton(
-                        icon: const Icon(Icons.copy, size: 20),
-                        tooltip: '复制 Key',
+                      CupertinoButton(
+                        padding: EdgeInsets.zero,
+                        child: const Icon(CupertinoIcons.doc_on_doc,
+                            size: 20, color: CupertinoColors.systemPurple),
                         onPressed: () {
                           Clipboard.setData(ClipboardData(text: key));
-                          ScaffoldMessenger.of(context).showSnackBar(
-                            const SnackBar(content: Text('Key 已复制')),
-                          );
+                          _showSnack('Key 已复制');
                         },
                       ),
                     ],
@@ -448,17 +499,17 @@ class _BypassPageState extends State<BypassPage> {
               width: double.infinity,
               padding: const EdgeInsets.all(14),
               decoration: BoxDecoration(
-                color: Colors.red.shade50,
+                color: CupertinoColors.systemRed.withValues(alpha: 0.08),
                 borderRadius: BorderRadius.circular(10),
-                border: Border.all(color: Colors.red.shade200),
               ),
               child: Row(
                 children: [
-                  const Icon(Icons.error_outline, color: Colors.red),
+                  const Icon(CupertinoIcons.exclamationmark_triangle_fill,
+                      color: CupertinoColors.systemRed),
                   const SizedBox(width: 8),
                   Expanded(
                     child: Text(_result!['error'] as String? ?? '处理失败',
-                      style: const TextStyle(color: Colors.red.shade700),
+                      style: const TextStyle(color: CupertinoColors.systemRed),
                     ),
                   ),
                 ],
@@ -486,10 +537,12 @@ class _BypassPageState extends State<BypassPage> {
         children: [
           SizedBox(
             width: 72,
-            child: Text(label, style: const TextStyle(color: Colors.grey, fontSize: 14)),
+            child: Text(label,
+              style: const TextStyle(color: CupertinoColors.systemGrey, fontSize: 14)),
           ),
           Expanded(
-            child: Text(value, style: const TextStyle(fontSize: 14, fontWeight: FontWeight.w500)),
+            child: Text(value,
+              style: const TextStyle(fontSize: 14, fontWeight: FontWeight.w500)),
           ),
         ],
       ),
@@ -502,57 +555,86 @@ class AboutPage extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return Center(
-      child: Padding(
-        padding: const EdgeInsets.symmetric(horizontal: 32),
-        child: Column(
-          mainAxisAlignment: MainAxisAlignment.center,
-          children: [
-            const Icon(Icons.bolt, size: 48, color: Colors.deepPurple),
-            const SizedBox(height: 12),
-            const Text(
-              'Bypass',
-              style: TextStyle(fontSize: 28, fontWeight: FontWeight.bold),
-            ),
-            const SizedBox(height: 8),
-            const Text('作者：eri', style: TextStyle(fontSize: 16)),
-            const SizedBox(height: 4),
-            const Text('QQ：3606359397', style: TextStyle(fontSize: 16)),
-            const SizedBox(height: 16),
-            Container(
-              padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 12),
-              decoration: BoxDecoration(
-                color: Colors.deepPurple.shade50,
-                borderRadius: BorderRadius.circular(12),
-                border: Border.all(color: Colors.deepPurple.shade200),
-              ),
-              child: Column(
-                children: [
-                  const Icon(Icons.groups, color: Colors.deepPurple, size: 28),
-                  const SizedBox(height: 6),
-                  const Text('QQ群', style: TextStyle(fontSize: 13, color: Colors.grey)),
-                  const SizedBox(height: 2),
-                  const Text('1106569806',
-                    style: TextStyle(
-                      fontSize: 18, fontWeight: FontWeight.bold,
-                      color: Colors.deepPurple, letterSpacing: 1.5,
-                    ),
+    return CupertinoPageScaffold(
+      navigationBar: const CupertinoNavigationBar(
+        middle: Text('关于'),
+      ),
+      child: SafeArea(
+        child: Center(
+          child: Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 32),
+            child: Column(
+              mainAxisAlignment: MainAxisAlignment.center,
+              children: [
+                const Icon(CupertinoIcons.bolt_fill,
+                    size: 48, color: CupertinoColors.systemPurple),
+                const SizedBox(height: 12),
+                const Text(
+                  'Bypass',
+                  style: TextStyle(fontSize: 28, fontWeight: FontWeight.bold),
+                ),
+                const SizedBox(height: 8),
+                const Text('作者：eri', style: TextStyle(fontSize: 16)),
+                const SizedBox(height: 4),
+                const Text('QQ：3606359397', style: TextStyle(fontSize: 16)),
+                const SizedBox(height: 16),
+                Container(
+                  padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 12),
+                  decoration: BoxDecoration(
+                    color: CupertinoColors.systemPurple.withValues(alpha: 0.08),
+                    borderRadius: BorderRadius.circular(12),
                   ),
-                ],
-              ),
+                  child: Column(
+                    children: [
+                      const Icon(CupertinoIcons.person_2_fill,
+                          color: CupertinoColors.systemPurple, size: 28),
+                      const SizedBox(height: 6),
+                      const Text('QQ群',
+                        style: TextStyle(fontSize: 13, color: CupertinoColors.systemGrey)),
+                      const SizedBox(height: 2),
+                      const Text('1106569806',
+                        style: TextStyle(
+                          fontSize: 18, fontWeight: FontWeight.bold,
+                          color: CupertinoColors.systemPurple, letterSpacing: 1.5,
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+                const SizedBox(height: 20),
+                CupertinoButton(
+                  child: const Text('复制群号'),
+                  onPressed: () {
+                    Clipboard.setData(const ClipboardData(text: '1106569806'));
+                    final overlay = Overlay.of(context);
+                    late OverlayEntry entry;
+                    entry = OverlayEntry(
+                      builder: (context) => Positioned(
+                        bottom: 90,
+                        left: 24,
+                        right: 24,
+                        child: IgnorePointer(
+                          child: Container(
+                            padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
+                            decoration: BoxDecoration(
+                              color: CupertinoColors.black.withValues(alpha: 0.75),
+                              borderRadius: BorderRadius.circular(20),
+                            ),
+                            child: const Text('群号已复制',
+                              textAlign: TextAlign.center,
+                              style: TextStyle(color: CupertinoColors.white),
+                            ),
+                          ),
+                        ),
+                      ),
+                    );
+                    overlay.insert(entry);
+                    Future.delayed(const Duration(seconds: 2), entry.remove);
+                  },
+                ),
+              ],
             ),
-            const SizedBox(height: 20),
-            TextButton.icon(
-              icon: const Icon(Icons.copy),
-              label: const Text('复制群号'),
-              onPressed: () {
-                Clipboard.setData(const ClipboardData(text: '1106569806'));
-                ScaffoldMessenger.of(context).showSnackBar(
-                  const SnackBar(content: Text('群号已复制')),
-                );
-              },
-            ),
-          ],
+          ),
         ),
       ),
     );
