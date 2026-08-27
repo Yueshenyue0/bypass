@@ -58,28 +58,7 @@ jobs:
 
       # ====== flutter_local_notifications 需要 core library desugaring ======
       - name: Enable core library desugaring
-        run: |
-          # 1) compileOptions + coreLibraryDesugaring 依赖
-          python3 - <<'EOF'
-          import re
-          p = 'android/app/build.gradle.kts'
-          s = open(p).read()
-          # 在 android{} 块内加 compileOptions（desugaring）
-          if 'isCoreLibraryDesugaringEnabled' not in s:
-            s = s.replace('android {', '''android {
-        compileOptions {
-            isCoreLibraryDesugaringEnabled = true
-            sourceCompatibility = JavaVersion.VERSION_11
-            targetCompatibility = JavaVersion.VERSION_11
-        }''', 1)
-          # 在 dependencies{} 里加 desugar_jdk_libs
-          if 'coreLibraryDesugaring' not in s:
-            s = s.replace('dependencies {', '''dependencies {
-        coreLibraryDesugaring("com.android.tools:desugar_jdk_libs:2.1.4")''', 1)
-          open(p, 'w').write(s)
-          print('desugaring enabled')
-          EOF
-          grep -n 'desugar\|compileOptions\|sourceCompatibility' android/app/build.gradle.kts || true
+        run: python3 scripts/enable_desugaring.py
 
       - name: Get dependencies
         run: flutter pub get
