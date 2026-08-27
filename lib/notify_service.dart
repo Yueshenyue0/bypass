@@ -1,4 +1,3 @@
-import 'dart:async';
 import 'dart:io';
 
 import 'package:flutter/material.dart';
@@ -73,7 +72,7 @@ class NotifyService {
     }
 
     FlutterForegroundTask.init(
-      androidNotificationOptions: const AndroidNotificationOptions(
+      androidNotificationOptions: AndroidNotificationOptions(
         channelId: 'bypass_foreground',
         channelName: 'Bypass 保活服务',
         channelDescription: '保持 Bypass 后台运行，及时接收绕过结果',
@@ -83,7 +82,7 @@ class NotifyService {
         showNotification: true,
         playSound: false,
       ),
-      foregroundTaskOptions: const ForegroundTaskOptions(
+      foregroundTaskOptions: ForegroundTaskOptions(
         eventAction: ForegroundTaskEventAction.repeat(5000),
         autoRunOnBoot: true,
         autoRunOnMyPackageReplaced: true,
