@@ -49,7 +49,6 @@ class SecurityChecker {
     if (await _checkInjectionFiles()) return true;
     if (await _checkSystemProxy()) return true;
     if (await _checkRoot()) return true;
-    if (await _checkDebugger()) return true;
     return false;
   }
 
@@ -120,15 +119,6 @@ class SecurityChecker {
         if ((r.stdout as String).trim().isNotEmpty) return true;
       } catch (_) {}
     }
-    return false;
-  }
-
-  static Future<bool> _checkDebugger() async {
-    if (kDebugMode) return false; // 调试构建不检测
-    try {
-      final info = await developer.Service.getInfo();
-      if (info.isSocketOpen) return true;
-    } catch (_) {}
     return false;
   }
 }
