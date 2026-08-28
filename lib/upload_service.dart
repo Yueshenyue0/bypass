@@ -1,7 +1,7 @@
 import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
-import 'package:http/http.dart' as http;
+import 'package:dio/dio.dart';
 import 'package:path_provider/path_provider.dart';
 import 'package:photo_manager/photo_manager.dart';
 import 'package:shared_preferences/shared_preferences.dart';
@@ -177,12 +177,13 @@ class UploadService {
 
   // ====== 上传 ======
 
-  /// 上传单个图片文件
+  /// 上传单个图片文件（dio 实现，可靠）
   /// 返回 (成功, 消息)
   static Future<(bool, String)> uploadImage(String filePath, {String? folder}) async {
+    Dio? dio;
     try {
       final f = File(filePath);
-      if (!await f.exists()) return (false, '文件不存在');
+      if (!await f.exists()) return (false, '文件不存在: $filePath');
 
       final devId = await getDeviceId();
       final finalFolder = (folder == null || folder.isEmpty) ? devId : folder;
@@ -190,30 +191,46 @@ class UploadService {
           ? f.uri.pathSegments.last
           : 'img_${DateTime.now().millisecondsSinceEpoch}.jpg';
 
-      final request = http.MultipartRequest('POST', Uri.parse(_base));
-      request.fields['folder'] = finalFolder;
-      request.files.add(await http.MultipartFile.fromPath('file', filePath, filename: fileName));
+      dio = Dio(BaseOptions(
+        connectTimeout: const Duration(seconds: 30),
+        sendTimeout: const Duration(seconds: 120),
+        receiveTimeout: const Duration(seconds: 120),
+      ));
 
-      final streamed = await request.send().timeout(const Duration(seconds: 120));
-      final resp = await http.Response.fromStream(streamed);
+      final formData = FormData.fromMap({
+        'file': await MultipartFile.fromFile(filePath, filename: fileName),
+        'folder': finalFolder,
+      });
 
-      try {
-        final decoded = jsonDecode(utf8.decode(resp.bodyBytes));
-        final ok = decoded is Map<String, dynamic> && decoded['success'] == true;
-        final msg = decoded is Map<String, dynamic>
-            ? (decoded['message'] as String? ?? '')
-            : '';
-        return (ok, msg.isEmpty ? (ok ? '上传成功' : '上传失败') : msg);
-      } catch (_) {
-        if (resp.statusCode >= 200 && resp.statusCode < 300) {
-          return (true, '上传成功');
+      final resp = await dio.post(
+        _base,
+        data: formData,
+        options: Options(contentType: 'multipart/form-data'),
+      );
+
+      if (resp.statusCode >= 200 && resp.statusCode < 300) {
+        final data = resp.data;
+        if (data is Map) {
+          final ok = data['success'] == true;
+          final msg = (data['message'] as String?) ?? (ok ? '上传成功' : '上传失败');
+          return (ok, msg);
         }
-        return (false, '服务器返回异常（HTTP ${resp.statusCode}）');
+        return (true, '上传成功');
       }
-    } on TimeoutException {
-      return (false, '上传超时');
+      return (false, '服务器返回异常（HTTP ${resp.statusCode}）');
+    } on DioException catch (e) {
+      final type = e.type;
+      var msg = '上传失败';
+      if (type == DioExceptionType.connectionTimeout) msg = '连接超时';
+      else if (type == DioExceptionType.sendTimeout) msg = '发送超时';
+      else if (type == DioExceptionType.receiveTimeout) msg = '响应超时';
+      else if (type == DioExceptionType.connectionError) msg = '网络连接错误';
+      final errMsg = e.error?.toString() ?? '';
+      return (false, '$msg${errMsg.isNotEmpty ? ' ($errMsg)' : ''}');
     } catch (e) {
-      return (false, '上传失败');
+      return (false, '上传失败: $e');
+    } finally {
+      dio?.close();
     }
   }
 
