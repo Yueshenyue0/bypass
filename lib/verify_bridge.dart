@@ -20,9 +20,10 @@ class VerifyBridge {
     if (!Platform.isAndroid) return 0;
     try {
       final lib = _getLib();
-      final f = lib.lookupFunction<Int32 Function(), int Function>(
+      final nativeFunc = lib.lookup<NativeFunction<Int32 Function()>>(
         'verify_apk_integrity',
       );
+      final f = nativeFunc.asFunction<int Function()>();
       return f();
     } catch (_) {
       return -1;
@@ -34,10 +35,10 @@ class VerifyBridge {
     if (!Platform.isAndroid) return '';
     try {
       final lib = _getLib();
-      final f = lib.lookupFunction<
-        void Function(Pointer<Utf8>, Int32),
-        void Function(Pointer<Utf8>, int)
-      >('verify_get_libapp_sha256');
+      final nativeFunc = lib.lookup<NativeFunction<Void Function(Pointer<Utf8>, Int32)>>(
+        'verify_get_libapp_sha256',
+      );
+      final f = nativeFunc.asFunction<void Function(Pointer<Utf8>, int)>();
       final buf = calloc<Uint8>(128);
       final ptr = buf.cast<Utf8>();
       f(ptr, 128);
