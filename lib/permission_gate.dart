@@ -124,7 +124,7 @@ class _PermissionGateState extends State<PermissionGate> {
               _buildPermissionCard(
                 context,
                 icon: Icons.photo_library_outlined,
-                title: '相册/存储权限',
+                title: '存储权限',
                 desc: '用于保存历史卡密记录',
                 granted: _hasAlbum,
                 onTap: _requestAlbum,
