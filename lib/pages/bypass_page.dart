@@ -130,9 +130,9 @@ class BypassPageState extends State<BypassPage> {
         }
       });
       // setState 之后：自动复制 Key 到剪贴板
-      if (copiedKey != null && copiedKey.isNotEmpty) {
+      if (copiedKey != null && copiedKey!.isNotEmpty) {
         try {
-          await Clipboard.setData(ClipboardData(text: copiedKey));
+          await Clipboard.setData(ClipboardData(text: copiedKey!));
           if (mounted) {
             ScaffoldMessenger.of(context).showSnackBar(
               const SnackBar(content: Text('Key 已自动复制到剪贴板')),
