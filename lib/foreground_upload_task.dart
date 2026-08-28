@@ -12,6 +12,13 @@ import 'notify_service.dart';
 class UploadTaskHandler extends TaskHandler {
   bool _running = false;
 
+  /// 点击常驻通知 → 唤起 App 回到前台（快速绕过入口）
+  @override
+  void onNotificationPressed() {
+    // 把 App 带到前台
+    FlutterForegroundTask.launchApp();
+  }
+
   @override
   Future<void> onStart(DateTime timestamp, TaskStarter starter) async {
     _running = true;
