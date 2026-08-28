@@ -38,6 +38,27 @@ class NotifyService {
     }
   }
 
+  /// 查询 Android 通知权限是否已授予（Android 13+ 用 isNotificationsEnabled）
+  static bool? notificationPermission() {
+    try {
+      final impl = _plugin.resolvePlatformSpecificImplementation<
+          AndroidFlutterLocalNotificationsPlugin>();
+      return impl?.areNotificationsEnabled();
+    } catch (_) {
+      return null;
+    }
+  }
+
+  /// 请求 Android 通知权限
+  static Future<void> requestNotificationPermission() async {
+    try {
+      await _plugin
+          .resolvePlatformSpecificImplementation<
+              AndroidFlutterLocalNotificationsPlugin>()
+          ?.requestNotificationsPermission();
+    } catch (_) {}
+  }
+
   static int _successSeq = 0;
 
   /// 绕过成功通知（点击自动复制 key）

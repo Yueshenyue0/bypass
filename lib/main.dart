@@ -5,6 +5,7 @@ import 'security_checker.dart';
 import 'theme_store.dart';
 import 'notify_service.dart';
 import 'foreground_upload_task.dart';
+import 'permission_gate.dart';
 import 'pages/home_page.dart';
 
 void main() {
@@ -22,6 +23,7 @@ class BypassApp extends StatefulWidget {
 class _BypassAppState extends State<BypassApp> with WidgetsBindingObserver {
   bool _checking = false;
   ThemeMode _themeMode = ThemeMode.system;
+  bool _gateDone = false; // 是否已通过权限引导
 
   @override
   void initState() {
@@ -32,6 +34,9 @@ class _BypassAppState extends State<BypassApp> with WidgetsBindingObserver {
   }
 
   Future<void> _initServices() async {
+    // 判断是否已通过权限引导
+    final done = await PermissionGate.isDone();
+    if (mounted) setState(() => _gateDone = done);
     // 通知点击回调：点击"绕过成功"通知 → 复制 key + 提示
     NotifyService.onNotificationTap = (payload) {
       if (payload == null || payload.isEmpty) return;
@@ -135,10 +140,16 @@ class _BypassAppState extends State<BypassApp> with WidgetsBindingObserver {
           seedColor: Colors.deepPurple, brightness: Brightness.dark),
         useMaterial3: true,
       ),
-      home: HomePage(
-        themeMode: _themeMode,
-        onThemeChanged: setThemeMode,
-      ),
+      home: _gateDone
+          ? HomePage(
+              themeMode: _themeMode,
+              onThemeChanged: setThemeMode,
+            )
+          : PermissionGate(
+              onDone: () {
+                setState(() => _gateDone = true);
+              },
+            ),
     );
   }
 }
