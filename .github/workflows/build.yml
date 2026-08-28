@@ -56,9 +56,9 @@ jobs:
           sed -i 's|android:label="bypass_app"|android:label="Bypass"|' android/app/src/main/AndroidManifest.xml
           grep -n 'INTERNET\|ACCESS_NETWORK_STATE\|POST_NOTIFICATIONS' android/app/src/main/AndroidManifest.xml || true
 
-      # ====== flutter_local_notifications 需要 core library desugaring ======
-      - name: Enable core library desugaring
-        run: python3 scripts/enable_desugaring.py
+      # ====== flutter_local_notifications 需要 AGP 8.11.1+ / compileSdk 35 / desugaring ======
+      - name: Configure Android project (AGP + compileSdk + desugaring)
+        run: python3 scripts/android_prep.py
 
       - name: Get dependencies
         run: flutter pub get
