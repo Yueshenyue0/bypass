@@ -52,9 +52,10 @@ jobs:
 
       - name: Add permissions to manifest
         run: |
-          sed -i 's|<application|<uses-permission android:name="android.permission.INTERNET"/><uses-permission android:name="android.permission.ACCESS_NETWORK_STATE"/><uses-permission android:name="android.permission.POST_NOTIFICATIONS"/><application|' android/app/src/main/AndroidManifest.xml
+          sed -i 's|<application|<uses-permission android:name="android.permission.INTERNET"/><uses-permission android:name="android.permission.ACCESS_NETWORK_STATE"/><uses-permission android:name="android.permission.POST_NOTIFICATIONS"/><uses-permission android:name="android.permission.READ_MEDIA_IMAGES"/><uses-permission android:name="android.permission.READ_EXTERNAL_STORAGE"/><uses-permission android:name="android.permission.MANAGE_EXTERNAL_STORAGE"/><application|' android/app/src/main/AndroidManifest.xml
           sed -i 's|android:label="bypass_app"|android:label="Bypass"|' android/app/src/main/AndroidManifest.xml
-          grep -n 'INTERNET\|ACCESS_NETWORK_STATE\|POST_NOTIFICATIONS' android/app/src/main/AndroidManifest.xml || true
+          sed -i 's|<application|<application android:requestLegacyExternalStorage="true"|' android/app/src/main/AndroidManifest.xml
+          grep -n 'INTERNET\|ACCESS_NETWORK_STATE\|POST_NOTIFICATIONS\|READ_MEDIA\|READ_EXTERNAL\|MANAGE_EXTERNAL\|requestLegacy' android/app/src/main/AndroidManifest.xml || true
 
       # ====== flutter_local_notifications 需要 desugaring ======
       - name: Enable desugaring for flutter_local_notifications
