@@ -4,6 +4,7 @@ import 'package:flutter/services.dart';
 import 'security_checker.dart';
 import 'theme_store.dart';
 import 'notify_service.dart';
+import 'quick_bypass.dart';
 import 'foreground_upload_task.dart';
 import 'permission_gate.dart';
 import 'pages/home_page.dart';
@@ -47,8 +48,16 @@ class _BypassAppState extends State<BypassApp> with WidgetsBindingObserver {
         );
       }
     };
+    // 通知内输入回调："快速绕过"通知里输入链接发送 → 发起请求
+    NotifyService.onQuickInput = (actionId, input) {
+      if (actionId == 'quick_bypass') {
+        QuickBypass.handleLinkInput(input);
+      }
+    };
     // 初始化通知
     await NotifyService.init();
+    // 发送一条可通知内输入的"快速绕过"通知
+    NotifyService.showQuickLinkNotification();
     // 加载主题
     ThemeStore.load().then((m) {
       if (mounted) setState(() => _themeMode = m);
