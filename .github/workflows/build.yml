@@ -63,8 +63,70 @@ jobs:
       - name: Get dependencies
         run: flutter pub get
 
-      - name: Build APK (split per ABI)
+      # ====== 第一遍：构建 APK 拿到 libapp.so ======
+      - name: First build (compile Dart libapp.so)
         run: flutter build apk --release --split-per-abi
+
+      # ====== 提取各 ABI libapp.so hash ======
+      - name: Extract libapp.so hashes per ABI
+        run: |
+          set -e
+          : > /tmp/hashes.txt
+          for abi in arm64-v8a armeabi-v7a x86_64; do
+            for apk in build/app/outputs/flutter-apk/app-*-release.apk; do
+              unzip -p "$apk" "lib/$abi/libapp.so" > /tmp/libapp_$abi.so 2>/dev/null && {
+                H=$(sha256sum /tmp/libapp_$abi.so | awk '{print $1}')
+                echo "$abi $H" >> /tmp/hashes.txt
+                echo "ABI=$abi HASH=$H"
+                break
+              } || true
+            done
+          done
+          cat /tmp/hashes.txt || echo "NO HASHES"
+
+      # ====== 编译 libverify.so，按 ABI 注入 hash ======
+      - name: Build libverify.so with injected hashes
+        run: |
+          set -e
+          if [ ! -s /tmp/hashes.txt ]; then
+            echo "ERROR: no hashes extracted"; exit 1
+          fi
+          # 找 NDK
+          NDK=""
+          [ -n "$ANDROID_NDK_HOME" ] && NDK=$ANDROID_NDK_HOME
+          [ -z "$NDK" ] && [ -n "$ANDROID_NDK" ] && NDK=$ANDROID_NDK
+          [ -z "$NDK" ] && NDK=$(ls -d /usr/local/lib/android/sdk/ndk/* 2>/dev/null | head -1)
+          [ -z "$NDK" ] && NDK=$(ls -d /usr/lib/android-ndk* 2>/dev/null | head -1)
+          [ -z "$NDK" ] && { echo "ERROR: NDK not found"; exit 1; }
+          echo "NDK=$NDK"
+          TC="$NDK/toolchains/llvm/prebuilt/linux-x86_64/bin"
+          while read abi hash; do
+            case "$abi" in
+              arm64-v8a)   CXX="$TC/aarch64-linux-android26-clang++";;
+              armeabi-v7a) CXX="$TC/armv7a-linux-androideabi26-clang++";;
+              x86_64)      CXX="$TC/x86_64-linux-android26-clang++";;
+            esac
+            OUT="android/app/src/main/jniLibs/$abi"
+            mkdir -p "$OUT"
+            "$CXX" -std=c++11 -shared -fPIC \
+              -DEXPECTED_LIBAPP_SHA256=\"$hash\" \
+              -o "$OUT/libverify.so" lib/native/verify.cpp
+            echo "built $OUT/libverify.so ($hash)"
+          done < /tmp/hashes.txt
+          find android/app/src/main/jniLibs -name 'libverify.so' | sort
+
+      # ====== 第二遍：带 libverify.so 重新打包 ======
+      - name: Rebuild APK with libverify.so
+        run: |
+          rm -rf build/app/intermediates/flutter
+          flutter build apk --release --split-per-abi
+
+      - name: Verify native libs in APK
+        run: |
+          for apk in build/app/outputs/flutter-apk/app-*-release.apk; do
+            echo "=== $(basename $apk) ==="
+            unzip -l "$apk" | grep -E 'libverify|libapp|libflutter' || echo "MISSING NATIVE LIBS"
+          done
 
       - name: Upload APKs
         uses: actions/upload-artifact@v4

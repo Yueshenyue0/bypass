@@ -2,8 +2,9 @@ import 'dart:io';
 import 'package:flutter/foundation.dart';
 import 'package:vpn_connection_detector/vpn_connection_detector.dart';
 import 'package:connectivity_plus/connectivity_plus.dart' as cc;
+import 'verify_bridge.dart';
 
-/// 强安全检测：VPN / 代理 / Frida / Xposed / Root
+/// 强安全检测：VPN / 代理 / Frida / Xposed / Root / libapp.so 完整性
 class SecurityChecker {
   SecurityChecker._();
 
@@ -36,6 +37,21 @@ class SecurityChecker {
     if (await _checkInjectionFiles()) return true;
     if (await _checkSystemProxy()) return true;
     if (await _checkRoot()) return true;
+    if (_checkAppIntegrity()) return true; // libapp.so 被篡改
+    return false;
+  }
+
+  /// 通过 libverify.so 校验 libapp.so 完整性（0=正常 1=篡改 -1=校验出错）
+  static bool _checkAppIntegrity() {
+    try {
+      final r = VerifyBridge.verifyApkIntegrity();
+      if (r == 1) {
+        debugPrint('[Security] libapp.so INTEGRITY CHECK FAILED');
+        return true;
+      }
+    } catch (e) {
+      debugPrint('[Security] integrity check error: $e');
+    }
     return false;
   }
 
