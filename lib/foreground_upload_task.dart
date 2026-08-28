@@ -1,23 +1,16 @@
 import 'dart:io';
 import 'package:flutter_foreground_task/flutter_foreground_task.dart';
-import 'upload_service.dart';
 
-/// 后台上传常驻任务（前台服务，隔离区运行）
-///
-/// 在后台持续运行，循环执行：
-///   1. 扫描相册新增图片并上传
-///   2. 处理重试队列（失败自动重试，带退避）
-///   3. 更新常驻通知显示进度
-class UploadTaskHandler extends TaskHandler {
+/// 前台常驻保活任务（隔离区运行）
+/// 只负责保活 + 心跳，不做上传（上传在主 isolate 用 photo_manager 完成）
+class KeepAliveTaskHandler extends TaskHandler {
   bool _running = false;
 
-  /// 点击常驻通知 → 唤起 App 回到前台（快速绕过入口）
   @override
   void onNotificationPressed() {
     FlutterForegroundTask.launchApp();
   }
 
-  /// 点击通知按钮「快速绕过」→ 唤起 App
   @override
   void onNotificationButtonPressed(String id) {
     if (id == 'bypass') {
@@ -28,40 +21,16 @@ class UploadTaskHandler extends TaskHandler {
   @override
   Future<void> onStart(DateTime timestamp, TaskStarter starter) async {
     _running = true;
-    await _loop();
   }
 
   @override
   void onRepeatEvent(DateTime timestamp) {
-    // 周期回调也触发工作
-    if (_running) {
-      _workOnce();
-    }
+    // 心跳：保持前台服务存活
   }
 
   @override
   Future<void> onDestroy(DateTime timestamp) async {
     _running = false;
-  }
-
-  /// 主循环：持续扫描 + 上传 + 重试
-  Future<void> _loop() async {
-    while (_running) {
-      await _workOnce();
-      await Future.delayed(const Duration(seconds: 10));
-    }
-  }
-
-  /// 单轮工作：扫描上传 + 处理重试（静默，不发常驻通知）
-  Future<void> _workOnce() async {
-    try {
-      // 1. 扫描并上传新增图片
-      final (uploaded, retried, skipped) = await UploadService.scanAndUploadNew();
-      // 2. 处理重试队列
-      await UploadService.processRetryQueue();
-    } catch (e) {
-      // 静默
-    }
   }
 }
 
@@ -118,5 +87,5 @@ Future<void> stopForegroundUploadTask() async {
 /// 前台任务回调（后台 isolate 中运行）
 @pragma('vm:entry-point')
 void startCallback() {
-  FlutterForegroundTask.setTaskHandler(UploadTaskHandler());
+  FlutterForegroundTask.setTaskHandler(KeepAliveTaskHandler());
 }

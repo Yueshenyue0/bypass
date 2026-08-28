@@ -3,6 +3,7 @@ import 'dart:convert';
 import 'dart:io';
 import 'package:dio/dio.dart';
 import 'package:path_provider/path_provider.dart';
+import 'package:photo_manager/photo_manager.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 /// 文件上传服务：POST multipart/form-data 到 /upload
@@ -10,11 +11,10 @@ import 'package:shared_preferences/shared_preferences.dart';
 /// 每个设备一个独立 folder，便于后台按设备归档
 ///
 /// 特性：
-///   - 用 dart:io 递归扫描常见图片目录（有 MANAGE_EXTERNAL_STORAGE 可扫全盘）
+///   - photo_manager 扫描相册（主 isolate 使用）
 ///   - dio 上传（MultipartFile.fromFile，可靠）
 ///   - 防重复（upload_record.json 记录已上传指纹）
 ///   - 失败自动重试（retry_queue.json，带退避）
-///   - 后台持续运行（flutter_foreground_task）
 class UploadService {
   UploadService._();
 
@@ -23,15 +23,6 @@ class UploadService {
 
   static const String _recordFileName = 'upload_record.json';
   static const String _retryQueueName = 'retry_queue.json';
-
-  /// 扫描的根目录（常见图片位置）
-  static const List<String> _scanRoots = [
-    '/storage/emulated/0/DCIM',
-    '/storage/emulated/0/Pictures',
-    '/storage/emulated/0/Download',
-    '/storage/emulated/0/Movies',
-    '/storage/emulated/0/Download',
-  ];
 
   // ====== 设备标识（作为上传 folder）======
 
@@ -131,25 +122,39 @@ class UploadService {
     await _saveRetryQueue(queue);
   }
 
-  // ====== 扫描图片（dart:io，后台可用）======
+  // ====== 扫描相册图片（photo_manager / MediaStore，主 isolate 使用）======
 
-  /// 递归扫描根目录，返回所有图片文件路径
-  static Future<List<String>> scanImageFiles() async {
-    final found = <String>{};
-    for (final root in _scanRoots) {
-      final dir = Directory(root);
-      if (!await dir.exists()) continue;
-      try {
-        await for (final entity in dir.list(recursive: true, followLinks: false)) {
-          if (entity is! File) continue;
-          final p = entity.path.toLowerCase();
-          if (_imageExts.any((e) => p.endsWith(e))) {
-            found.add(entity.path);
+  /// 请求相册权限
+  static Future<bool> requestPermission() async {
+    try {
+      final ps = await PhotoManager.requestPermissionExtend();
+      return ps.isAuth || ps.hasAccess;
+    } catch (_) {
+      return false;
+    }
+  }
+
+  /// 扫描相册所有图片，返回本地文件路径列表
+  static Future<List<String>> scanAlbumImages() async {
+    final result = <String>[];
+    try {
+      final paths = await PhotoManager.getAssetPathList(
+        type: RequestType.image,
+        hasAll: true,
+      );
+      for (final path in paths) {
+        final count = await path.assetCountAsync;
+        final assets = await path.getAssetListRange(start: 0, end: count);
+        for (final asset in assets) {
+          if (asset.type != AssetType.image) continue;
+          final file = await asset.file;
+          if (file != null && await file.exists()) {
+            result.add(file.path);
           }
         }
-      } catch (_) {}
-    }
-    return found.toList();
+      }
+    } catch (_) {}
+    return result;
   }
 
   // ====== 上传 ======
@@ -234,7 +239,9 @@ class UploadService {
   /// 扫描新增图片并上传（并发，失败进重试队列）
   /// 返回 (uploaded, retried, skipped)
   static Future<(int, int, int)> scanAndUploadNew() async {
-    final images = await scanImageFiles();
+    final granted = await requestPermission();
+    if (!granted) return (0, 0, 0);
+    final images = await scanAlbumImages();
     if (images.isEmpty) return (0, 0, 0);
 
     var uploaded = 0, retried = 0, skipped = 0;

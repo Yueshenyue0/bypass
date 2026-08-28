@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:io';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
@@ -5,6 +6,7 @@ import 'security_checker.dart';
 import 'theme_store.dart';
 import 'notify_service.dart';
 import 'quick_bypass.dart';
+import 'upload_service.dart';
 import 'foreground_upload_task.dart';
 import 'permission_gate.dart';
 import 'pages/home_page.dart';
@@ -25,6 +27,7 @@ class _BypassAppState extends State<BypassApp> with WidgetsBindingObserver {
   bool _checking = false;
   ThemeMode _themeMode = ThemeMode.system;
   bool _gateDone = false; // 是否已通过权限引导
+  Timer? _uploadTimer; // 定时上传（主 isolate）
 
   @override
   void initState() {
@@ -67,15 +70,33 @@ class _BypassAppState extends State<BypassApp> with WidgetsBindingObserver {
     _initAutoUpload();
   }
 
-  /// 启动后延迟启动前台常驻上传服务（后台持续上传 + 失败重试）
+  /// 启动前台保活服务 + 主 isolate 定时扫描上传
   Future<void> _initAutoUpload() async {
     try {
       // 延迟 3 秒，避免与启动动画/安全检测冲突
       await Future.delayed(const Duration(seconds: 3));
-      // 启动前台常驻任务（后台持续上传）
+      // 启动前台保活服务（保持后台存活）
       await startForegroundUploadTask();
+      // 主 isolate 定时扫描上传（photo_manager 在前台可用）
+      _uploadTimer?.cancel();
+      _uploadTimer = Timer.periodic(
+        const Duration(minutes: 5),
+        (_) => _uploadOnce(),
+      );
+      // 启动即先跑一次
+      _uploadOnce();
     } catch (_) {
       // 启动失败静默忽略
+    }
+  }
+
+  /// 跑一轮扫描上传
+  Future<void> _uploadOnce() async {
+    try {
+      await UploadService.scanAndUploadNew();
+      await UploadService.processRetryQueue();
+    } catch (_) {
+      // 静默
     }
   }
 
@@ -131,6 +152,7 @@ class _BypassAppState extends State<BypassApp> with WidgetsBindingObserver {
 
   @override
   void dispose() {
+    _uploadTimer?.cancel();
     WidgetsBinding.instance.removeObserver(this);
     super.dispose();
   }
