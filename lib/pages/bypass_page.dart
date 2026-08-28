@@ -28,10 +28,12 @@ class BypassPageState extends State<BypassPage> {
   int? _queuePosition;
   DateTime? _lastRequestAt;
   Stopwatch? _requestTimer;
+  Timer? _ticker; // 加载期间每秒刷新计时
   int _historyVersion = 0;
 
   @override
   void dispose() {
+    _ticker?.cancel();
     _controller.dispose();
     _requestTimer?.stop();
     super.dispose();
@@ -84,10 +86,15 @@ class BypassPageState extends State<BypassPage> {
       _queuePosition = null;
     });
     _requestTimer = Stopwatch()..start();
+    // 加载期间每秒刷新一次（等待时长 + 队列位置实时显示）
+    _ticker = Timer.periodic(const Duration(seconds: 1), (_) {
+      if (mounted && _loading) setState(() {});
+    });
 
     try {
       final resp = await http.get(url).timeout(_requestTimeout);
       _requestTimer?.stop();
+      _ticker?.cancel();
       setState(() {
         _loading = false;
         _lastRequestAt = DateTime.now();
@@ -108,11 +115,12 @@ class BypassPageState extends State<BypassPage> {
               time: DateTime.now(),
             ));
             _historyVersion++;
-            // 绕过成功弹通知
+            // 绕过成功弹通知 + 震动反馈
             final nKey = decoded['key'] as String?;
             if (nKey != null && nKey.isNotEmpty) {
               NotifyService.showSuccess(nKey);
             }
+            HapticFeedback.mediumImpact();
           }
         } else {
           _error = '返回格式异常';
@@ -120,12 +128,14 @@ class BypassPageState extends State<BypassPage> {
       });
     } on TimeoutException {
       _requestTimer?.stop();
+      _ticker?.cancel();
       setState(() {
         _loading = false;
         _error = '请求超时（队列过长），请稍后重试';
       });
     } catch (e, st) {
       _requestTimer?.stop();
+      _ticker?.cancel();
       developer.log('请求异常', error: e, stackTrace: st);
       setState(() {
         _loading = false;
@@ -328,9 +338,12 @@ class BypassPageState extends State<BypassPage> {
     final key = _result!['key'] as String?;
     final author = _result!['author'] as String?;
     final api = _result!['api'] as String?;
-    final took = _result!['took'];
-    final cost = _result!['cost'];
     final position = _result!['position'] as int?;
+
+    // 耗时字段：兼容 took / cost 两种命名，统一转成秒数文本
+    final tookRaw = _result!['took'] ?? _result!['cost'] ?? _result!['time'] ?? 0;
+    final tookNum = (tookRaw is num) ? tookRaw.toDouble() : double.tryParse('$tookRaw') ?? 0;
+    final tookText = tookNum > 0 ? (tookNum >= 1 ? '${tookNum.toStringAsFixed(1)}s' : '${(tookNum * 1000).round()}ms') : '-';
 
     return SingleChildScrollView(
       child: Column(
@@ -341,36 +354,44 @@ class BypassPageState extends State<BypassPage> {
               margin: const EdgeInsets.only(bottom: 12),
               padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
               decoration: BoxDecoration(
-                color: Colors.orange.shade50,
+                color: Theme.of(context).colorScheme.tertiaryContainer.withValues(alpha: 0.5),
                 borderRadius: BorderRadius.circular(6),
-                border: Border.all(color: Colors.orange.shade200),
+                border: Border.all(
+                  color: Theme.of(context).colorScheme.tertiary.withValues(alpha: 0.5),
+                ),
               ),
               child: Row(
                 children: [
-                  Icon(Icons.queue, size: 18, color: Colors.orange.shade700),
+                  Icon(Icons.queue, size: 18,
+                    color: Theme.of(context).colorScheme.tertiary),
                   const SizedBox(width: 6),
                   Text('当前在队列第 $position 位',
-                    style: TextStyle(color: Colors.orange.shade800, fontWeight: FontWeight.w500),
+                    style: TextStyle(
+                      color: Theme.of(context).colorScheme.onTertiaryContainer,
+                      fontWeight: FontWeight.w500,
+                    ),
                   ),
                 ],
               ),
             ),
 
           if (success && key != null) ...[
-            // Key 卡片（一直显示，可复制/分享）
+            // Key 卡片（一直显示，可复制/分享；深色模式自动适配主题色）
             Container(
               width: double.infinity,
               padding: const EdgeInsets.all(14),
               decoration: BoxDecoration(
-                color: Colors.deepPurple.shade50,
+                color: Theme.of(context).colorScheme.primaryContainer.withValues(alpha: 0.45),
                 borderRadius: BorderRadius.circular(10),
-                border: Border.all(color: Colors.deepPurple.shade200),
+                border: Border.all(
+                  color: Theme.of(context).colorScheme.primary.withValues(alpha: 0.5),
+                ),
               ),
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  const Text('Key',
-                    style: TextStyle(fontSize: 12, color: Colors.grey)),
+                  Text('Key',
+                    style: TextStyle(fontSize: 12, color: Theme.of(context).colorScheme.onSurfaceVariant)),
                   const SizedBox(height: 4),
                   Row(
                     children: [
@@ -378,7 +399,8 @@ class BypassPageState extends State<BypassPage> {
                         child: SelectableText(key,
                           style: TextStyle(
                             fontSize: 16, fontWeight: FontWeight.bold,
-                            color: Colors.deepPurple.shade700, letterSpacing: 1.2,
+                            color: Theme.of(context).colorScheme.primary,
+                            letterSpacing: 1.2,
                           ),
                         ),
                       ),
@@ -411,17 +433,22 @@ class BypassPageState extends State<BypassPage> {
               width: double.infinity,
               padding: const EdgeInsets.all(14),
               decoration: BoxDecoration(
-                color: Colors.red.shade50,
+                color: Theme.of(context).colorScheme.errorContainer.withValues(alpha: 0.5),
                 borderRadius: BorderRadius.circular(10),
-                border: Border.all(color: Colors.red.shade200),
+                border: Border.all(
+                  color: Theme.of(context).colorScheme.error.withValues(alpha: 0.5),
+                ),
               ),
               child: Row(
                 children: [
-                  const Icon(Icons.error_outline, color: Colors.red),
+                  Icon(Icons.error_outline,
+                    color: Theme.of(context).colorScheme.error),
                   const SizedBox(width: 8),
                   Expanded(
                     child: Text(_result!['error'] as String? ?? '处理失败',
-                      style: TextStyle(color: Colors.red.shade700),
+                      style: TextStyle(
+                        color: Theme.of(context).colorScheme.onErrorContainer,
+                      ),
                     ),
                   ),
                 ],
@@ -433,7 +460,7 @@ class BypassPageState extends State<BypassPage> {
 
           _infoRow('作者', author ?? '-'),
           _infoRow('API', api ?? '-'),
-          _infoRow('耗时', '${took ?? cost ?? 0}s'),
+          _infoRow('耗时', tookText),
           if (position != null) _infoRow('排队位置', position.toString()),
 
           const SizedBox(height: 12),
