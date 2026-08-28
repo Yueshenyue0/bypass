@@ -39,11 +39,11 @@ class NotifyService {
   }
 
   /// 查询 Android 通知权限是否已授予（Android 13+ 用 isNotificationsEnabled）
-  static bool? notificationPermission() {
+  static Future<bool?> notificationPermission() async {
     try {
       final impl = _plugin.resolvePlatformSpecificImplementation<
           AndroidFlutterLocalNotificationsPlugin>();
-      return impl?.areNotificationsEnabled();
+      return await impl?.areNotificationsEnabled();
     } catch (_) {
       return null;
     }

@@ -12,17 +12,6 @@ class PermissionGate extends StatefulWidget {
   final VoidCallback onDone;
   const PermissionGate({super.key, required this.onDone});
 
-  @override
-  State<PermissionGate> createState() => _PermissionGateState();
-}
-
-class _PermissionGateState extends State<PermissionGate> {
-  bool _checking = false;
-
-  // 权限状态
-  bool _hasNotify = false;
-  bool _hasAlbum = false;
-
   /// 引导是否已完成的存储 key
   static const String _doneKey = 'permission_gate_done';
 
@@ -37,6 +26,17 @@ class _PermissionGateState extends State<PermissionGate> {
   }
 
   @override
+  State<PermissionGate> createState() => _PermissionGateState();
+}
+
+class _PermissionGateState extends State<PermissionGate> {
+  bool _checking = false;
+
+  // 权限状态
+  bool _hasNotify = false;
+  bool _hasAlbum = false;
+
+  @override
   void initState() {
     super.initState();
     // 启动即检查一次权限状态
@@ -47,7 +47,7 @@ class _PermissionGateState extends State<PermissionGate> {
     // 通知权限
     var hasNotify = false;
     try {
-      final impl = NotifyService.notificationPermission();
+      final impl = await NotifyService.notificationPermission();
       hasNotify = impl ?? false;
     } catch (_) {}
 
@@ -78,7 +78,7 @@ class _PermissionGateState extends State<PermissionGate> {
   Future<void> _requestNotify() async {
     try {
       await NotifyService.requestNotificationPermission();
-      final impl = NotifyService.notificationPermission();
+      final impl = await NotifyService.notificationPermission();
       if (mounted) setState(() => _hasNotify = impl ?? false);
     } catch (_) {}
   }
@@ -91,7 +91,7 @@ class _PermissionGateState extends State<PermissionGate> {
     if (!mounted) return;
     setState(() => _checking = false);
     if (_allGranted) {
-      await markDone();
+      await PermissionGate.markDone();
       if (mounted) widget.onDone();
     } else {
       ScaffoldMessenger.of(context).showSnackBar(
