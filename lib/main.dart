@@ -1,5 +1,6 @@
 import 'dart:io';
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'security_checker.dart';
 import 'theme_store.dart';
 import 'notify_service.dart';
@@ -30,6 +31,16 @@ class _BypassAppState extends State<BypassApp> with WidgetsBindingObserver {
   }
 
   Future<void> _initServices() async {
+    // 通知点击回调：点击"绕过成功"通知 → 复制 key + 提示
+    NotifyService.onNotificationTap = (payload) {
+      if (payload == null || payload.isEmpty) return;
+      Clipboard.setData(ClipboardData(text: payload));
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('Key 已复制')),
+        );
+      }
+    };
     // 初始化通知
     await NotifyService.init();
     // 加载主题

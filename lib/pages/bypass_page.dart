@@ -198,12 +198,26 @@ class BypassPageState extends State<BypassPage> {
                 itemBuilder: (ctx, i) {
                   final e = list[i];
                   return ListTile(
-                    title: Text(
-                      e.key ?? '(无 Key)',
-                      style: const TextStyle(
-                        fontWeight: FontWeight.w600,
-                        letterSpacing: 1.0,
-                      ),
+                    title: Row(
+                      children: [
+                        Flexible(
+                          child: Text(
+                            e.key ?? '(无 Key)',
+                            style: const TextStyle(
+                              fontWeight: FontWeight.w600,
+                              letterSpacing: 1.0,
+                            ),
+                          ),
+                        ),
+                        const SizedBox(width: 8),
+                        Text(
+                          e.timeText,
+                          style: TextStyle(
+                            fontSize: 11,
+                            color: Theme.of(ctx).colorScheme.onSurfaceVariant,
+                          ),
+                        ),
+                      ],
                     ),
                     subtitle: Text(
                       e.url,

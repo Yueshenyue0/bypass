@@ -17,6 +17,25 @@ class HistoryEntry {
     this.cost,
     required this.time,
   });
+
+  /// 格式化时间：今天显示 HH:mm，昨天显示"昨天 HH:mm"，更早显示 MM-DD HH:mm
+  String get timeText {
+    final now = DateTime.now();
+    final t = time;
+    if (t.year == now.year && t.month == now.month && t.day == now.day) {
+      return '今天 ${_two(t.hour)}:${_two(t.minute)}';
+    }
+    final yesterday = now.subtract(const Duration(days: 1));
+    if (t.year == yesterday.year &&
+        t.month == yesterday.month &&
+        t.day == yesterday.day) {
+      return '昨天 ${_two(t.hour)}:${_two(t.minute)}';
+    }
+    return '${_two(t.month)}-${_two(t.day)} ${_two(t.hour)}:${_two(t.minute)}';
+  }
+
+  static String _two(int n) => n.toString().padLeft(2, '0');
+
   Map<String, dynamic> toJson() => {
     'url': url,
     'key': key,
