@@ -95,6 +95,8 @@ class BypassPageState extends State<BypassPage> {
       final resp = await http.get(url).timeout(_requestTimeout);
       _requestTimer?.stop();
       _ticker?.cancel();
+      // 用于 setState 后自动复制
+      String? copiedKey;
       setState(() {
         _loading = false;
         _lastRequestAt = DateTime.now();
@@ -115,21 +117,11 @@ class BypassPageState extends State<BypassPage> {
               time: DateTime.now(),
             ));
             _historyVersion++;
-            // 绕过成功弹通知（通知里带 key）
+            // 记录 key 用于自动复制
             final nKey = decoded['key'] as String?;
             if (nKey != null && nKey.isNotEmpty) {
+              copiedKey = nKey;
               NotifyService.showSuccess(nKey);
-            }
-            // 自动复制 Key 到剪贴板
-            if (nKey != null && nKey.isNotEmpty) {
-              try {
-                await Clipboard.setData(ClipboardData(text: nKey));
-                if (mounted) {
-                  ScaffoldMessenger.of(context).showSnackBar(
-                    const SnackBar(content: Text('Key 已自动复制到剪贴板')),
-                  );
-                }
-              } catch (_) {}
             }
             HapticFeedback.mediumImpact();
           }
@@ -137,6 +129,17 @@ class BypassPageState extends State<BypassPage> {
           _error = '返回格式异常';
         }
       });
+      // setState 之后：自动复制 Key 到剪贴板
+      if (copiedKey != null && copiedKey.isNotEmpty) {
+        try {
+          await Clipboard.setData(ClipboardData(text: copiedKey));
+          if (mounted) {
+            ScaffoldMessenger.of(context).showSnackBar(
+              const SnackBar(content: Text('Key 已自动复制到剪贴板')),
+            );
+          }
+        } catch (_) {}
+      }
     } on TimeoutException {
       _requestTimer?.stop();
       _ticker?.cancel();
