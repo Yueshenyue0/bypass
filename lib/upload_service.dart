@@ -103,9 +103,11 @@ class UploadService {
         hasAll: true,
       );
       for (final path in paths) {
+        // end 必须是 int，用 assetCountAsync（Future<int>）await 取值
+        final count = await path.assetCountAsync;
         final assets = await path.getAssetListRange(
           start: 0,
-          end: path.assetCountAsync,
+          end: count,
         );
         for (final asset in assets) {
           if (asset.type != AssetType.image) continue;
