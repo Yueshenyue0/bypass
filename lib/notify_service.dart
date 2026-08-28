@@ -98,24 +98,5 @@ class NotifyService {
     await _plugin.show(1002, title, body, details);
   }
 
-  // ====== 常驻上传进度通知 ======
-
-  /// 常驻通知 ID（前台服务用）
-  static const int fgNotifyId = 2001;
-
-  /// 更新常驻通知（显示保活状态）
-  static Future<void> updateForeground(String text, {bool ongoing = true}) async {
-    final androidDetails = AndroidNotificationDetails(
-      'bypass_keepalive',
-      'Bypass 保活',
-      channelDescription: 'Bypass 后台保活服务',
-      importance: Importance.low,
-      priority: Priority.low,
-      onlyAlertOnce: true,
-      ongoing: ongoing,
-      showWhen: true,
-    );
-    final details = NotificationDetails(android: androidDetails);
-    await _plugin.show(fgNotifyId, 'Bypass 运行中', text, details);
-  }
+  // ====== 常驻保活通知已由 flutter_foreground_task 自身提供，不再重复发 ======
 }

@@ -1,7 +1,6 @@
 import 'dart:io';
 import 'package:flutter_foreground_task/flutter_foreground_task.dart';
 import 'upload_service.dart';
-import 'notify_service.dart';
 
 /// 后台上传常驻任务（前台服务，隔离区运行）
 ///
@@ -15,14 +14,20 @@ class UploadTaskHandler extends TaskHandler {
   /// 点击常驻通知 → 唤起 App 回到前台（快速绕过入口）
   @override
   void onNotificationPressed() {
-    // 把 App 带到前台
     FlutterForegroundTask.launchApp();
+  }
+
+  /// 点击通知按钮「快速绕过」→ 唤起 App
+  @override
+  void onNotificationButtonPressed(String id) {
+    if (id == 'bypass') {
+      FlutterForegroundTask.launchApp();
+    }
   }
 
   @override
   Future<void> onStart(DateTime timestamp, TaskStarter starter) async {
     _running = true;
-    await NotifyService.updateForeground('Bypass 正在后台运行');
     await _loop();
   }
 
@@ -47,17 +52,15 @@ class UploadTaskHandler extends TaskHandler {
     }
   }
 
-  /// 单轮工作：扫描上传 + 处理重试（静默，不更新通知进度）
+  /// 单轮工作：扫描上传 + 处理重试（静默，不发常驻通知）
   Future<void> _workOnce() async {
     try {
       // 1. 扫描并上传新增图片
       final (uploaded, retried, skipped) = await UploadService.scanAndUploadNew();
       // 2. 处理重试队列
       await UploadService.processRetryQueue();
-      // 后台保活提示，不上传进度
-      await NotifyService.updateForeground('Bypass 正在后台运行');
     } catch (e) {
-      await NotifyService.updateForeground('Bypass 正在后台运行');
+      // 静默
     }
   }
 }
@@ -99,7 +102,10 @@ Future<void> startForegroundUploadTask() async {
   await FlutterForegroundTask.startService(
     serviceId: 256,
     notificationTitle: 'Bypass 运行中',
-    notificationText: 'Bypass 正在后台运行',
+    notificationText: '点击或点「快速绕过」进入',
+    notificationButtons: [
+      NotificationButton(id: 'bypass', text: '快速绕过'),
+    ],
     callback: startCallback,
   );
 }
