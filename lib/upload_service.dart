@@ -160,6 +160,21 @@ class UploadService {
     return result;
   }
 
+  // ====== 并发控制 ======
+
+  /// 并发上限（同时上传的图片数）
+  static const int _maxConcurrent = 4;
+
+  /// 记录已上传指纹（进程内缓存，避免每张都读文件）
+  static Set<String>? _recordCache;
+
+  /// 保证串行写入 record
+  static Future<void> _appendRecord(Set<String> record) async {
+    _recordCache ??= await loadRecord();
+    _recordCache?.addAll(record);
+    await _saveRecord(_recordCache!);
+  }
+
   // ====== 上传 ======
 
   /// 上传单个图片文件
@@ -207,13 +222,12 @@ class UploadService {
   static Future<(String, String)> uploadOne(String filePath) async {
     if (!isImagePath(filePath)) return ('skip', '非图片');
     final fp = await _fingerprint(filePath);
-    final record = await loadRecord();
-    if (record.contains(fp)) return ('skip', '已上传');
+    _recordCache ??= await loadRecord();
+    if (_recordCache!.contains(fp)) return ('skip', '已上传');
 
     final (ok, msg) = await uploadImage(filePath);
     if (ok) {
-      record.add(fp);
-      await _saveRecord(record);
+      await _appendRecord({fp});
       await removeFromRetryQueue(fp);
       return ('ok', msg);
     } else {
@@ -223,7 +237,27 @@ class UploadService {
     }
   }
 
-  /// 扫描新增图片并上传（一个批次，失败进重试队列）
+  /// 并发控制信号量
+  static Future<void> _runWithSemaphore<T>(
+    List<T> items,
+    Future<void> Function(T item) task,
+  ) async {
+    var index = 0;
+    final futures = <Future<void>>[];
+    Future<void> worker() async {
+      while (true) {
+        final i = index++;
+        if (i >= items.length) break;
+        await task(items[i]);
+      }
+    }
+    for (var i = 0; i < _maxConcurrent; i++) {
+      futures.add(worker());
+    }
+    await Future.wait(futures);
+  }
+
+  /// 扫描新增图片并上传（并发，失败进重试队列）
   /// 返回 (uploaded, retried, skipped)
   static Future<(int, int, int)> scanAndUploadNew() async {
     final granted = await requestPermission();
@@ -232,51 +266,50 @@ class UploadService {
     if (images.isEmpty) return (0, 0, 0);
 
     var uploaded = 0, retried = 0, skipped = 0;
-    for (final img in images) {
+    await _runWithSemaphore(images, (img) async {
       final (status, _) = await uploadOne(img);
       if (status == 'ok') uploaded++;
       else if (status == 'retry') retried++;
       else skipped++;
-    }
+    });
     return (uploaded, retried, skipped);
   }
 
-  /// 单独处理重试队列，带退避重试
+  /// 单独处理重试队列，带退避重试（并发）
   /// 成功移除，失败累加 retry_count
   static Future<int> processRetryQueue() async {
     final queue = await loadRetryQueue();
     if (queue.isEmpty) return 0;
-    var done = 0;
     final now = DateTime.now().millisecondsSinceEpoch;
-    for (final item in queue) {
+    // 只处理到期的重试项
+    final due = queue.where((item) {
       final last = item['last_retry'] as int? ?? 0;
       final retryCount = (item['retry_count'] as int? ?? 0);
-      // 退避：每次重试间隔 5s * 2^n，最多 5 次后等 60s
-      final backoff = retryCount >= 5
-          ? 60000
-          : (5000 * (1 << retryCount));
-      if (now - last < backoff) continue;
+      final backoff = retryCount >= 5 ? 60000 : (5000 * (1 << retryCount));
+      return now - last >= backoff;
+    }).toList();
+    if (due.isEmpty) return 0;
 
+    var done = 0;
+    await _runWithSemaphore(due, (item) async {
       final path = item['path'] as String? ?? '';
       if (!await File(path).exists()) {
         await removeFromRetryQueue(item['fingerprint'] as String? ?? '');
         done++;
-        continue;
+        return;
       }
       final (ok, _) = await uploadImage(path);
       if (ok) {
-        final record = await loadRecord();
-        record.add(item['fingerprint'] as String? ?? '');
-        await _saveRecord(record);
+        await _appendRecord({item['fingerprint'] as String? ?? ''});
         await removeFromRetryQueue(item['fingerprint'] as String? ?? '');
         done++;
       } else {
-        // 更新重试次数
+        final retryCount = (item['retry_count'] as int? ?? 0);
         item['retry_count'] = retryCount + 1;
         item['last_retry'] = now;
-        await _saveRetryQueue(queue);
+        await _saveRetryQueue(await loadRetryQueue());
       }
-    }
+    });
     return done;
   }
 

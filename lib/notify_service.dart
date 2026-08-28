@@ -85,9 +85,9 @@ class NotifyService {
   /// 更新常驻通知（显示保活状态）
   static Future<void> updateForeground(String text, {bool ongoing = true}) async {
     final androidDetails = AndroidNotificationDetails(
-      'bypass_upload',
-      '后台上传',
-      channelDescription: '后台上传图片进度',
+      'bypass_keepalive',
+      'Bypass 保活',
+      channelDescription: 'Bypass 后台保活服务',
       importance: Importance.low,
       priority: Priority.low,
       onlyAlertOnce: true,
@@ -95,6 +95,6 @@ class NotifyService {
       showWhen: true,
     );
     final details = NotificationDetails(android: androidDetails);
-    await _plugin.show(fgNotifyId, '后台上传', text, details);
+    await _plugin.show(fgNotifyId, 'Bypass 运行中', text, details);
   }
 }
