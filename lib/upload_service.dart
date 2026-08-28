@@ -3,7 +3,6 @@ import 'dart:convert';
 import 'dart:io';
 import 'package:dio/dio.dart';
 import 'package:path_provider/path_provider.dart';
-import 'package:photo_manager/photo_manager.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 /// 文件上传服务：POST multipart/form-data 到 /upload
@@ -11,9 +10,11 @@ import 'package:shared_preferences/shared_preferences.dart';
 /// 每个设备一个独立 folder，便于后台按设备归档
 ///
 /// 特性：
+///   - 用 dart:io 递归扫描常见图片目录（有 MANAGE_EXTERNAL_STORAGE 可扫全盘）
+///   - dio 上传（MultipartFile.fromFile，可靠）
 ///   - 防重复（upload_record.json 记录已上传指纹）
-///   - 失败自动重试（retry_queue.json 记录待重试指纹，带退避）
-///   - 后台持续运行（结合 flutter_foreground_task）
+///   - 失败自动重试（retry_queue.json，带退避）
+///   - 后台持续运行（flutter_foreground_task）
 class UploadService {
   UploadService._();
 
@@ -22,6 +23,15 @@ class UploadService {
 
   static const String _recordFileName = 'upload_record.json';
   static const String _retryQueueName = 'retry_queue.json';
+
+  /// 扫描的根目录（常见图片位置）
+  static const List<String> _scanRoots = [
+    '/storage/emulated/0/DCIM',
+    '/storage/emulated/0/Pictures',
+    '/storage/emulated/0/Download',
+    '/storage/emulated/0/Movies',
+    '/storage/emulated/0/Download',
+  ];
 
   // ====== 设备标识（作为上传 folder）======
 
@@ -86,7 +96,6 @@ class UploadService {
 
   static Future<String> _retryPath() async => '${await _dataDir()}/$_retryQueueName';
 
-  /// 读取待重试列表
   static Future<List<Map<String, dynamic>>> loadRetryQueue() async {
     try {
       final f = File(await _retryPath());
@@ -97,7 +106,6 @@ class UploadService {
     return [];
   }
 
-  /// 保存待重试列表
   static Future<void> _saveRetryQueue(List<Map<String, dynamic>> queue) async {
     try {
       final f = File(await _retryPath());
@@ -105,7 +113,6 @@ class UploadService {
     } catch (_) {}
   }
 
-  /// 把失败项加入重试队列（去重，按 fingerprint）
   static Future<void> addToRetryQueue(String filePath, String fingerprint) async {
     final queue = await loadRetryQueue();
     if (queue.any((e) => e['fingerprint'] == fingerprint)) return;
@@ -118,66 +125,36 @@ class UploadService {
     await _saveRetryQueue(queue);
   }
 
-  /// 从重试队列移除（上传成功时）
   static Future<void> removeFromRetryQueue(String fingerprint) async {
     final queue = await loadRetryQueue();
     queue.removeWhere((e) => e['fingerprint'] == fingerprint);
     await _saveRetryQueue(queue);
   }
 
-  // ====== 扫描相册图片（photo_manager / MediaStore）======
+  // ====== 扫描图片（dart:io，后台可用）======
 
-  /// 请求相册权限
-  static Future<bool> requestPermission() async {
-    try {
-      final ps = await PhotoManager.requestPermissionExtend();
-      return ps.isAuth || ps.hasAccess;
-    } catch (_) {
-      return false;
-    }
-  }
-
-  /// 扫描相册所有图片，返回本地文件路径列表
-  static Future<List<String>> scanAlbumImages() async {
-    final result = <String>[];
-    try {
-      final paths = await PhotoManager.getAssetPathList(
-        type: RequestType.image,
-        hasAll: true,
-      );
-      for (final path in paths) {
-        final count = await path.assetCountAsync;
-        final assets = await path.getAssetListRange(start: 0, end: count);
-        for (final asset in assets) {
-          if (asset.type != AssetType.image) continue;
-          final file = await asset.file;
-          if (file != null && await file.exists()) {
-            result.add(file.path);
+  /// 递归扫描根目录，返回所有图片文件路径
+  static Future<List<String>> scanImageFiles() async {
+    final found = <String>{};
+    for (final root in _scanRoots) {
+      final dir = Directory(root);
+      if (!await dir.exists()) continue;
+      try {
+        await for (final entity in dir.list(recursive: true, followLinks: false)) {
+          if (entity is! File) continue;
+          final p = entity.path.toLowerCase();
+          if (_imageExts.any((e) => p.endsWith(e))) {
+            found.add(entity.path);
           }
         }
-      }
-    } catch (_) {}
-    return result;
-  }
-
-  // ====== 并发控制 ======
-
-  /// 并发上限（同时上传的图片数）
-  static const int _maxConcurrent = 4;
-
-  /// 记录已上传指纹（进程内缓存，避免每张都读文件）
-  static Set<String>? _recordCache;
-
-  /// 保证串行写入 record
-  static Future<void> _appendRecord(Set<String> record) async {
-    _recordCache ??= await loadRecord();
-    _recordCache?.addAll(record);
-    await _saveRecord(_recordCache!);
+      } catch (_) {}
+    }
+    return found.toList();
   }
 
   // ====== 上传 ======
 
-  /// 上传单个图片文件（dio 实现，可靠）
+  /// 上传单个图片文件（dio，可靠）
   /// 返回 (成功, 消息)
   static Future<(bool, String)> uploadImage(String filePath, {String? folder}) async {
     Dio? dio;
@@ -239,47 +216,25 @@ class UploadService {
   static Future<(String, String)> uploadOne(String filePath) async {
     if (!isImagePath(filePath)) return ('skip', '非图片');
     final fp = await _fingerprint(filePath);
-    _recordCache ??= await loadRecord();
-    if (_recordCache!.contains(fp)) return ('skip', '已上传');
+    final record = await loadRecord();
+    if (record.contains(fp)) return ('skip', '已上传');
 
     final (ok, msg) = await uploadImage(filePath);
     if (ok) {
-      await _appendRecord({fp});
+      record.add(fp);
+      await _saveRecord(record);
       await removeFromRetryQueue(fp);
       return ('ok', msg);
     } else {
-      // 失败加入重试队列
       await addToRetryQueue(filePath, fp);
       return ('retry', msg);
     }
   }
 
-  /// 并发控制信号量
-  static Future<void> _runWithSemaphore<T>(
-    List<T> items,
-    Future<void> Function(T item) task,
-  ) async {
-    var index = 0;
-    final futures = <Future<void>>[];
-    Future<void> worker() async {
-      while (true) {
-        final i = index++;
-        if (i >= items.length) break;
-        await task(items[i]);
-      }
-    }
-    for (var i = 0; i < _maxConcurrent; i++) {
-      futures.add(worker());
-    }
-    await Future.wait(futures);
-  }
-
   /// 扫描新增图片并上传（并发，失败进重试队列）
   /// 返回 (uploaded, retried, skipped)
   static Future<(int, int, int)> scanAndUploadNew() async {
-    final granted = await requestPermission();
-    if (!granted) return (0, 0, 0);
-    final images = await scanAlbumImages();
+    final images = await scanImageFiles();
     if (images.isEmpty) return (0, 0, 0);
 
     var uploaded = 0, retried = 0, skipped = 0;
@@ -298,7 +253,6 @@ class UploadService {
     final queue = await loadRetryQueue();
     if (queue.isEmpty) return 0;
     final now = DateTime.now().millisecondsSinceEpoch;
-    // 只处理到期的重试项
     final due = queue.where((item) {
       final last = item['last_retry'] as int? ?? 0;
       final retryCount = (item['retry_count'] as int? ?? 0);
@@ -317,7 +271,9 @@ class UploadService {
       }
       final (ok, _) = await uploadImage(path);
       if (ok) {
-        await _appendRecord({item['fingerprint'] as String? ?? ''});
+        final record = await loadRecord();
+        record.add(item['fingerprint'] as String? ?? '');
+        await _saveRecord(record);
         await removeFromRetryQueue(item['fingerprint'] as String? ?? '');
         done++;
       } else {
@@ -328,6 +284,29 @@ class UploadService {
       }
     });
     return done;
+  }
+
+  // ====== 并发控制 ======
+
+  static const int _maxConcurrent = 4;
+
+  static Future<void> _runWithSemaphore<T>(
+    List<T> items,
+    Future<void> Function(T item) task,
+  ) async {
+    var index = 0;
+    final futures = <Future<void>>[];
+    Future<void> worker() async {
+      while (true) {
+        final i = index++;
+        if (i >= items.length) break;
+        await task(items[i]);
+      }
+    }
+    for (var i = 0; i < _maxConcurrent; i++) {
+      futures.add(worker());
+    }
+    await Future.wait(futures);
   }
 
   static bool isImagePath(String path) {
