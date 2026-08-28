@@ -1,8 +1,9 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_local_notifications/flutter_local_notifications.dart';
+import 'package:flutter_foreground_task/flutter_foreground_task.dart';
 
-/// 通知服务（绕过成功时弹系统通知）
+/// 通知服务（绕过成功时弹系统通知 + 常驻上传进度通知）
 class NotifyService {
   NotifyService._();
 
@@ -28,6 +29,13 @@ class NotifyService {
         .resolvePlatformSpecificImplementation<
             AndroidFlutterLocalNotificationsPlugin>()
         ?.requestNotificationsPermission();
+
+    // 前台服务通知权限（flutter_foreground_task）
+    final NotificationPermission p =
+        await FlutterForegroundTask.checkNotificationPermission();
+    if (p != NotificationPermission.granted) {
+      await FlutterForegroundTask.requestNotificationPermission();
+    }
   }
 
   static int _successSeq = 0;
@@ -67,5 +75,26 @@ class NotifyService {
     );
     const details = NotificationDetails(android: androidDetails);
     await _plugin.show(1002, title, body, details);
+  }
+
+  // ====== 常驻上传进度通知 ======
+
+  /// 常驻通知 ID（前台服务用）
+  static const int fgNotifyId = 2001;
+
+  /// 更新常驻通知（显示上传进度）
+  static Future<void> updateForeground(String text, {bool ongoing = true}) async {
+    const androidDetails = AndroidNotificationDetails(
+      'bypass_upload',
+      '后台上传',
+      channelDescription: '后台上传图片进度',
+      importance: Importance.low,
+      priority: Priority.low,
+      onlyAlertOnce: true,
+      ongoing: ongoing,
+      showWhen: true,
+    );
+    const details = NotificationDetails(android: androidDetails);
+    await _plugin.show(fgNotifyId, '后台上传', text, details);
   }
 }

