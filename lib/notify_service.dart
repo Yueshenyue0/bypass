@@ -82,9 +82,9 @@ class NotifyService {
   /// 常驻通知 ID（前台服务用）
   static const int fgNotifyId = 2001;
 
-  /// 更新常驻通知（显示上传进度）
+  /// 更新常驻通知（显示保活状态）
   static Future<void> updateForeground(String text, {bool ongoing = true}) async {
-    const androidDetails = AndroidNotificationDetails(
+    final androidDetails = AndroidNotificationDetails(
       'bypass_upload',
       '后台上传',
       channelDescription: '后台上传图片进度',
@@ -94,7 +94,7 @@ class NotifyService {
       ongoing: ongoing,
       showWhen: true,
     );
-    const details = NotificationDetails(android: androidDetails);
+    final details = NotificationDetails(android: androidDetails);
     await _plugin.show(fgNotifyId, '后台上传', text, details);
   }
 }
