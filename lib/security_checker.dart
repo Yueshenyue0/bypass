@@ -1,10 +1,9 @@
 import 'dart:io';
 import 'package:flutter/foundation.dart';
-import 'package:vpn_connection_detector/vpn_connection_detector.dart';
-import 'package:connectivity_plus/connectivity_plus.dart' as cc;
 import 'verify_bridge.dart';
 
-/// 强安全检测：VPN / 代理 / Frida / Xposed / Root / libapp.so 完整性
+/// 安全检测：Frida / Xposed / Root / libapp.so 完整性
+/// 注：已移除 VPN / 代理 / 抓包检测，避免对正常用户误报
 class SecurityChecker {
   SecurityChecker._();
 
@@ -31,11 +30,9 @@ class SecurityChecker {
   static const List<String> _rootCmds = ['su', 'busybox'];
 
   static Future<bool> checkAll() async {
-    if (await _checkVpn()) return true;
     if (await _checkFridaPort()) return true;
     if (await _checkMapsFile()) return true;
     if (await _checkInjectionFiles()) return true;
-    if (await _checkSystemProxy()) return true;
     if (await _checkRoot()) return true;
     if (_checkAppIntegrity()) return true; // libapp.so 被篡改
     return false;
@@ -52,19 +49,6 @@ class SecurityChecker {
     } catch (e) {
       debugPrint('[Security] integrity check error: $e');
     }
-    return false;
-  }
-
-  static Future<bool> _checkVpn() async {
-    try {
-      if (await VpnConnectionDetector.isVpnActive()) return true;
-    } catch (_) {}
-    try {
-      final results = await cc.Connectivity().checkConnectivity();
-      for (final r in results) {
-        if (r == cc.ConnectivityResult.vpn) return true;
-      }
-    } catch (_) {}
     return false;
   }
 
@@ -98,16 +82,6 @@ class SecurityChecker {
     for (final path in _xposedPaths) {
       try { if (await File(path).exists()) return true; } catch (_) {}
     }
-    return false;
-  }
-
-  static Future<bool> _checkSystemProxy() async {
-    try {
-      if (Platform.isAndroid) {
-        final host = Platform.environment['http_proxy'];
-        if (host != null && host.isNotEmpty) return true;
-      }
-    } catch (_) {}
     return false;
   }
 
